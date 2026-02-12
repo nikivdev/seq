@@ -1,0 +1,6 @@
+# telegram alias -> tg:// url (tab-separated)
+log	tg://resolve?domain=nikiv_log
+nikivdev	tg://resolve?domain=nikivdev
+nikivdev (chat)	tg://resolve?domain=nikivdev_chat
+saved	tg://resolve?domain=nikivi
+

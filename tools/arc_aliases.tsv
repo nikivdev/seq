@@ -1,0 +1,45 @@
+# arc alias -> url (tab-separated)
+# Used by tools/gen_macros.py when config.ts contains `km("arc: <alias>")`.
+swift forum	https://forums.swift.org
+t3 chat	https://t3.chat
+soundcloud	https://soundcloud.com
+le chat	https://chat.mistral.ai
+bolt	https://bolt.new
+producthunt	https://www.producthunt.com
+midjourney	https://www.midjourney.com
+grok imagine	https://grok.com
+sora	https://openai.com/sora
+backpack exchange	https://www.backpack.exchange
+chef	https://www.chef.io
+vsco	https://vsco.co
+uber	https://www.uber.com
+coinbase	https://www.coinbase.com
+elk	https://elk.zone
+wikipedia	https://wikipedia.org
+upstash	https://upstash.com
+amazon	https://amazon.com
+etsy	https://www.etsy.com
+farcaster	https://warpcast.com
+bluesky	https://bsky.app
+twitch	https://www.twitch.tv
+strava	https://www.strava.com
+lobsters	https://lobste.rs
+alltrails	https://www.alltrails.com
+qwen	https://chat.qwen.ai
+github map	https://github.com/explore
+gel	https://geldata.com
+arxiv	https://arxiv.org
+pinboard (popular)	https://pinboard.in/popular
+vercel domains	https://vercel.com/dashboard/domains
+vs	https://vscode.dev
+map of reddit	https://anvaka.github.io/map-of-reddit
+cronometer	https://cronometer.com
+science explore	https://www.science.org
+convex	https://dashboard.convex.dev
+elevenlabs	https://elevenlabs.io
+grafbase	https://grafbase.com
+rutracker	https://rutracker.org
+jazz inspector	https://jazz.tools
+deepseek	https://chat.deepseek.com
+clickhouse	https://clickhouse.com
+expo	https://expo.dev

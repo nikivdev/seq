@@ -1,0 +1,28 @@
+.ai/internal/
+.rise/
+.ai/todos/*.bike
+.ai/review-log.jsonl
+.ai/web/
+.ai/state.json
+
+.beads/
+
+# flow
+.ai/internal/
+.ai/web/
+.ai/skills/
+.claude/
+.codex/
+.flox/
+
+# build outputs
+out/
+cli/cpp/out/
+cli/swift/**/out/
+
+# optional local macros overlay (loaded automatically by seqd/cli if present)
+seq.macros.local.yaml
+
+*.pyc
+
+__pycache__/

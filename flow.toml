@@ -1,0 +1,110 @@
+version = 1
+name = "seq"
+
+[flow]
+deploy_task = "deploy"
+
+[[tasks]]
+name = "build"
+command = "sh ./cli/cpp/run.sh build"
+description = "Build seq CLI/daemon (includes seqmem dylib)"
+
+[[tasks]]
+name = "daemon-restart"
+command = "f daemon restart seqd"
+description = "Restart seqd via Flow daemon manager"
+
+[[tasks]]
+name = "deploy"
+command = "sh ./cli/cpp/run.sh deploy"
+description = "Build seq and restart seqd"
+
+[[tasks]]
+name = "app-state"
+command = "sh -lc \"/Users/nikiv/code/seq/cli/cpp/out/bin/seq app-state\""
+description = "Dump seqd cached frontmost/previous app (avoid PATH conflict with /usr/bin/seq)"
+
+[[tasks]]
+name = "accessibility-prompt"
+command = "sh -lc \"/Users/nikiv/code/seq/cli/cpp/out/bin/seq accessibility-prompt\""
+description = "Trigger Accessibility permission prompt for seq (needed for Cmd-Tab injection)"
+
+[[tasks]]
+name = "test"
+command = "sh ./cli/cpp/run.sh test"
+description = "Perf smoke tests for seqd + memory engine"
+
+[[tasks]]
+name = "watch-open-app-toggle"
+command = "sh -lc \"tail -f $HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl | rg --line-buffered 'cli\\\\.open_app_toggle\\\\.action'\""
+description = "Tail open-app-toggle decisions (cli.open_app_toggle.action) from seq_mem.jsonl"
+
+[[tasks]]
+name = "watch-open-app-toggle-debug"
+command = "sh -lc \"tail -f $HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl | rg --line-buffered 'cli\\\\.open_app_toggle\\\\.action|seqd\\\\.open_app_toggle\\\\.diag|app\\\\.activate'\""
+description = "Tail app-toggle decisions + daemon diag + app.activate from seq_mem.jsonl"
+
+[[tasks]]
+name = "watch-open-app-toggle-rule"
+command = "sh -lc \"tail -f $HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl | python3 tools/open_app_toggle_rule.py\""
+description = "Rule: for each decision=open_prev, expect app.activate(prev) soon after"
+
+[[tasks]]
+name = "km-parallel-scout"
+command = "python3 tools/km_parallel_scout.py --limit 50"
+description = "Scan kar/config.ts + KM macro DB for macros that could benefit from seq parallel execution"
+
+[[tasks]]
+name = "import-km-arc"
+command = "python3 tools/import_km_arc_macros.py"
+description = "Import KM arc:* macros into seq.macros.local.yaml (Spaces menu + keystrokes)"
+
+[[tasks]]
+name = "import-km-arc-deploy"
+command = "sh -lc \"python3 tools/import_km_arc_macros.py && sh ./cli/cpp/run.sh deploy\""
+description = "Import KM arc:* macros then deploy (restart seqd)"
+
+[[tasks]]
+name = "dump-open-app-toggle-debug"
+command = "sh -lc \"/Users/nikiv/code/seq/cli/cpp/out/bin/seq app-state; echo '---'; tail -n 200 $HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl | rg 'cli\\\\.open_app_toggle\\\\.action|seqd\\\\.open_app_toggle\\\\.diag|app\\\\.activate' | tail -n 80\""
+description = "Snapshot current app-state + recent open-app-toggle related events"
+
+[[tasks]]
+name = "tail-logs"
+command = "python3 tools/tail_all_logs.py --last 200"
+description = "Tail both seq_trace.jsonl + seq_mem.jsonl (human readable)"
+
+[[tasks]]
+name = "tail-logs-json"
+command = "python3 tools/tail_all_logs.py --last 200 --json"
+description = "Tail both logs as JSON objects (easy to paste)"
+
+[[tasks]]
+name = "watch-logs"
+command = "sh -lc \"echo 'READY watch-logs'; python3 tools/tail_all_logs.py --last 0 --follow\""
+description = "Follow both logs from now (starts empty; human readable)"
+
+[[tasks]]
+name = "watch-logs-toggle"
+command = "sh -lc \"echo 'READY watch-logs-toggle'; python3 tools/tail_all_logs.py --last 0 --follow --grep 'open_app_toggle|app\\\\.activate'\""
+description = "Follow app toggle + app.activate from now (starts empty)"
+
+[[tasks]]
+name = "watch-logs-json"
+command = "sh -lc \"echo 'READY watch-logs-json'; python3 tools/tail_all_logs.py --last 0 --follow --json\""
+description = "Follow both logs from now as JSON objects (starts empty; pasteable)"
+
+[[tasks]]
+name = "watch-logs-toggle-json"
+command = "sh -lc \"echo 'READY watch-logs-toggle-json'; python3 tools/tail_all_logs.py --last 0 --follow --json --grep 'open_app_toggle|app\\\\.activate'\""
+description = "Follow app toggle + app.activate from now as JSON objects (starts empty)"
+
+[[tasks]]
+name = "watch-arc"
+command = "sh -lc \"echo 'READY watch-arc'; python3 tools/tail_all_logs.py --last 0 --follow --grep 'seqd\\\\.run|menu\\\\.select|AX_(STATUS|PROMPT)|open_url\\\\.activate_app'\""
+description = "Follow Arc-related automation (seqd.run + menu.select + open_url.activate_app)"
+
+[[tasks]]
+name = "watch-arc-json"
+command = "sh -lc \"echo 'READY watch-arc-json'; python3 tools/tail_all_logs.py --last 0 --follow --json --grep 'seqd\\\\.run|menu\\\\.select|AX_(STATUS|PROMPT)|open_url\\\\.activate_app'\""
+description = "Follow Arc-related automation as JSON objects (pasteable)"

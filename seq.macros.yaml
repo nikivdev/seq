@@ -1,0 +1,596 @@
+# Generated from /Users/nikiv/config/i/kar/config.ts
+# Fields: name, action, arg, app (optional)
+# Actions: open_app, open_app_toggle, open_url, session_save, paste_text, switch_window_or_app, keystroke, select_menu_item, click, double_click, right_click, scroll, drag, mouse_move, screenshot, sequence, todo
+
+- name: "Lowercase selected text"
+  action: todo
+  arg: ""
+- name: "Uppercase selected text"
+  action: todo
+  arg: ""
+- name: "Make markdown link from selection {link}"
+  action: todo
+  arg: ""
+- name: "paste relevant context to issue"
+  action: todo
+  arg: ""
+- name: "repo prompt: flow"
+  action: todo
+  arg: ""
+- name: "repo prompt: 1f"
+  action: todo
+  arg: ""
+- name: "repo prompt: nikiv"
+  action: todo
+  arg: ""
+- name: "repo prompt: linsa"
+  action: todo
+  arg: ""
+- name: "repo prompt: new"
+  action: todo
+  arg: ""
+- name: "repo prompt: x"
+  action: todo
+  arg: ""
+- name: "explain (selection, or paste)"
+  action: todo
+  arg: ""
+- name: "View Sip"
+  action: todo
+  arg: ""
+- name: "Centre mouse to active app"
+  action: todo
+  arg: ""
+- name: "Go to KM group of current app from picklist"
+  action: todo
+  arg: ""
+- name: "Go to KM group of current app"
+  action: todo
+  arg: ""
+- name: "Dismiss notifications"
+  action: todo
+  arg: ""
+- name: "New KM global macro"
+  action: todo
+  arg: ""
+- name: "Test"
+  action: todo
+  arg: ""
+- name: "Go to test macro"
+  action: todo
+  arg: ""
+- name: "paste: create flow.toml task for this and tell me what to run"
+  action: paste_text
+  arg: "create flow.toml task for this and tell me what to run"
+- name: "Create new contact"
+  action: todo
+  arg: ""
+- name: "New Spark email"
+  action: todo
+  arg: ""
+- name: "switch between windows of same app (or switch to another app if no more than 1 window)"
+  action: switch_window_or_app
+  arg: ""
+- name: "X Feed (in Arc)"
+  action: sequence
+  arg: ""
+  steps:
+    - action: open_app
+      arg: "Arc"
+    - action: keystroke
+      arg: "ctrl+1"
+    - action: keystroke
+      arg: "cmd+6"
+- name: "X Messages (in Arc)"
+  action: sequence
+  arg: ""
+  steps:
+    - action: open_app
+      arg: "Arc"
+    - action: keystroke
+      arg: "ctrl+1"
+    - action: keystroke
+      arg: "cmd+8"
+- name: "open Safari new tab"
+  action: open_url
+  arg: "about:blank"
+  app: "Safari"
+- name: "open Comet new tab"
+  action: open_url
+  arg: "about:blank"
+  app: "Comet"
+- name: "New Linear task"
+  action: sequence
+  arg: ""
+  steps:
+    - action: open_app
+      arg: "Linear"
+    - action: keystroke
+      arg: "cmd+1"
+    - action: keystroke
+      arg: "cmd+n"
+- name: "w: CodeSandbox"
+  action: open_url
+  arg: "https://codesandbox.io/u/nikitavoloboev/sandboxes"
+  app: "Safari"
+- name: "w: Repl.it"
+  action: open_url
+  arg: "https://repl.it/@nikitavoloboev/"
+  app: "Safari"
+- name: "arc: localhost:fr"
+  action: open_url
+  arg: "http://localhost:fr"
+  app: "Arc"
+- name: "arc: localhost:linsa"
+  action: open_url
+  arg: "http://localhost:linsa"
+  app: "Arc"
+- name: "arc: localhost:la"
+  action: open_url
+  arg: "http://localhost:la"
+  app: "Arc"
+- name: "arc: localhost:ghost"
+  action: open_url
+  arg: "http://localhost:ghost"
+  app: "Arc"
+- name: "arc: localhost:3000"
+  action: open_url
+  arg: "http://localhost:3000"
+  app: "Arc"
+- name: "arc: localhost:nikiv"
+  action: open_url
+  arg: "http://localhost:nikiv"
+  app: "Arc"
+- name: "arc: localhost:gen"
+  action: open_url
+  arg: "http://localhost:gen"
+  app: "Arc"
+- name: "arc: localhost:api"
+  action: open_url
+  arg: "http://localhost:api"
+  app: "Arc"
+- name: "arc: localhost:sb"
+  action: open_url
+  arg: "http://localhost:sb"
+  app: "Arc"
+- name: "arc: localhost:ui"
+  action: open_url
+  arg: "http://localhost:ui"
+  app: "Arc"
+- name: "arc: scaleway.com"
+  action: open_url
+  arg: "https://scaleway.com"
+  app: "Arc"
+- name: "arc: swift forum"
+  action: open_url
+  arg: "https://forums.swift.org"
+  app: "Arc"
+- name: "arc: t3 chat"
+  action: open_url
+  arg: "https://t3.chat"
+  app: "Arc"
+- name: "arc: soundcloud"
+  action: open_url
+  arg: "https://soundcloud.com"
+  app: "Arc"
+- name: "arc: le chat"
+  action: open_url
+  arg: "https://chat.mistral.ai"
+  app: "Arc"
+- name: "arc: bolt"
+  action: open_url
+  arg: "https://bolt.new"
+  app: "Arc"
+- name: "arc: producthunt"
+  action: open_url
+  arg: "https://www.producthunt.com"
+  app: "Arc"
+- name: "arc: midjourney"
+  action: open_url
+  arg: "https://www.midjourney.com"
+  app: "Arc"
+- name: "arc: grok imagine"
+  action: open_url
+  arg: "https://grok.com"
+  app: "Arc"
+- name: "arc: sora"
+  action: open_url
+  arg: "https://openai.com/sora"
+  app: "Arc"
+- name: "arc: backpack exchange"
+  action: open_url
+  arg: "https://www.backpack.exchange"
+  app: "Arc"
+- name: "arc: chef"
+  action: open_url
+  arg: "https://www.chef.io"
+  app: "Arc"
+- name: "arc: vsco"
+  action: open_url
+  arg: "https://vsco.co"
+  app: "Arc"
+- name: "arc: uber"
+  action: open_url
+  arg: "https://www.uber.com"
+  app: "Arc"
+- name: "arc: coinbase"
+  action: open_url
+  arg: "https://www.coinbase.com"
+  app: "Arc"
+- name: "arc: elk"
+  action: open_url
+  arg: "https://elk.zone"
+  app: "Arc"
+- name: "arc: n8n.io"
+  action: open_url
+  arg: "https://n8n.io"
+  app: "Arc"
+- name: "arc: qwen"
+  action: open_url
+  arg: "https://chat.qwen.ai"
+  app: "Arc"
+- name: "arc: github map"
+  action: open_url
+  arg: "https://github.com/explore"
+  app: "Arc"
+- name: "arc: gel"
+  action: open_url
+  arg: "https://geldata.com"
+  app: "Arc"
+- name: "arc: arxiv"
+  action: open_url
+  arg: "https://arxiv.org"
+  app: "Arc"
+- name: "arc: pinboard (popular)"
+  action: open_url
+  arg: "https://pinboard.in/popular"
+  app: "Arc"
+- name: "arc: vercel domains"
+  action: open_url
+  arg: "https://vercel.com/dashboard/domains"
+  app: "Arc"
+- name: "arc: vs"
+  action: open_url
+  arg: "https://vscode.dev"
+  app: "Arc"
+- name: "arc: map of reddit"
+  action: open_url
+  arg: "https://anvaka.github.io/map-of-reddit"
+  app: "Arc"
+- name: "arc: cronometer"
+  action: open_url
+  arg: "https://cronometer.com"
+  app: "Arc"
+- name: "arc: science explore"
+  action: open_url
+  arg: "https://www.science.org"
+  app: "Arc"
+- name: "arc: convex"
+  action: open_url
+  arg: "https://dashboard.convex.dev"
+  app: "Arc"
+- name: "arc: elevenlabs"
+  action: open_url
+  arg: "https://elevenlabs.io"
+  app: "Arc"
+- name: "arc: grafbase"
+  action: open_url
+  arg: "https://grafbase.com"
+  app: "Arc"
+- name: "arc: rutracker"
+  action: open_url
+  arg: "https://rutracker.org"
+  app: "Arc"
+- name: "paste: €"
+  action: paste_text
+  arg: "€"
+- name: "arc: console.neon.tech"
+  action: open_url
+  arg: "https://console.neon.tech"
+  app: "Arc"
+- name: "arc: vercel.com"
+  action: open_url
+  arg: "https://vercel.com"
+  app: "Arc"
+- name: "arc: railway.com"
+  action: open_url
+  arg: "https://railway.com"
+  app: "Arc"
+- name: "Move selection to LM Studio"
+  action: sequence
+  arg: ""
+  steps:
+    - action: keystroke
+      arg: "cmd+c"
+    - action: open_app
+      arg: "LM Studio"
+    - action: keystroke
+      arg: "cmd+v"
+- name: "arc: cloudflare.com"
+  action: open_url
+  arg: "https://cloudflare.com"
+  app: "Arc"
+- name: "open: Spotify (or search)"
+  action: open_app_toggle
+  arg: "Spotify"
+- name: "Selection -> Claude"
+  action: sequence
+  arg: ""
+  steps:
+    - action: keystroke
+      arg: "cmd+c"
+    - action: open_app
+      arg: "Claude"
+    - action: keystroke
+      arg: "cmd+v"
+    - action: keystroke
+      arg: "return"
+- name: "arc: framer.com"
+  action: open_url
+  arg: "https://framer.com"
+  app: "Arc"
+- name: "telegram: nikivdev (chat)"
+  action: open_url
+  arg: "tg://resolve?domain=nikivdev_chat"
+- name: "telegram: log"
+  action: open_url
+  arg: "tg://resolve?domain=nikiv_log"
+- name: "telegram: nikivdev"
+  action: open_url
+  arg: "tg://resolve?domain=nikivdev"
+- name: "arc: grok.com/imagine"
+  action: open_url
+  arg: "https://grok.com/imagine"
+  app: "Arc"
+- name: "arc: aistudio.google.com"
+  action: open_url
+  arg: "https://aistudio.google.com"
+  app: "Arc"
+- name: "arc: grok.com"
+  action: open_url
+  arg: "https://grok.com"
+  app: "Arc"
+- name: "arc: console.groq.com"
+  action: open_url
+  arg: "https://console.groq.com"
+  app: "Arc"
+- name: "arc: axiom.co"
+  action: open_url
+  arg: "https://axiom.co"
+  app: "Arc"
+- name: "arc: sentry.com"
+  action: open_url
+  arg: "https://sentry.com"
+  app: "Arc"
+- name: "arc: dodopayments.com"
+  action: open_url
+  arg: "https://dodopayments.com"
+  app: "Arc"
+- name: "arc: stripe.com"
+  action: open_url
+  arg: "https://stripe.com"
+  app: "Arc"
+- name: "arc: lovable.dev"
+  action: open_url
+  arg: "https://lovable.dev"
+  app: "Arc"
+- name: "arc: openrouter.ai"
+  action: open_url
+  arg: "https://openrouter.ai"
+  app: "Arc"
+- name: "arc: aws.amazon.com"
+  action: open_url
+  arg: "https://aws.amazon.com"
+  app: "Arc"
+- name: "arc: daytona.com"
+  action: open_url
+  arg: "https://daytona.com"
+  app: "Arc"
+- name: "arc: maps.google.com"
+  action: open_url
+  arg: "https://maps.google.com"
+  app: "Arc"
+- name: "arc: clickhouse"
+  action: open_url
+  arg: "https://clickhouse.com"
+  app: "Arc"
+- name: "arc: primeintellect.ai"
+  action: open_url
+  arg: "https://primeintellect.ai"
+  app: "Arc"
+- name: "arc: modal.com"
+  action: open_url
+  arg: "https://modal.com"
+  app: "Arc"
+- name: "arc: huggingface.com"
+  action: open_url
+  arg: "https://huggingface.com"
+  app: "Arc"
+- name: "arc: leap.new"
+  action: open_url
+  arg: "https://leap.new"
+  app: "Arc"
+- name: "arc: cloud.cerebras.ai"
+  action: open_url
+  arg: "https://cloud.cerebras.ai"
+  app: "Arc"
+- name: "arc: app.planetscale.com"
+  action: open_url
+  arg: "https://app.planetscale.com"
+  app: "Arc"
+- name: "arc: fal.ai"
+  action: open_url
+  arg: "https://fal.ai"
+  app: "Arc"
+- name: "arc: hetzner.com"
+  action: open_url
+  arg: "https://hetzner.com"
+  app: "Arc"
+- name: "arc: expo"
+  action: open_url
+  arg: "https://expo.dev"
+  app: "Arc"
+- name: "arc: resend.com"
+  action: open_url
+  arg: "https://resend.com"
+  app: "Arc"
+- name: "arc: console.cloud.google.com"
+  action: open_url
+  arg: "https://console.cloud.google.com"
+  app: "Arc"
+- name: "paste: personal nikita@ email"
+  action: paste_text
+  arg: "personal nikita@ email"
+- name: "paste: personal nikita.vo@ email"
+  action: paste_text
+  arg: "personal nikita.vo@ email"
+- name: "enter: explain"
+  action: sequence
+  arg: ""
+  steps:
+    - action: paste_text
+      arg: "explain"
+    - action: keystroke
+      arg: "return"
+- name: "paste: Cal.com (15 min)"
+  action: paste_text
+  arg: "Cal.com (15 min)"
+- name: "enter: what to run next?"
+  action: sequence
+  arg: ""
+  steps:
+    - action: paste_text
+      arg: "what to run next?"
+    - action: keystroke
+      arg: "return"
+- name: "paste: what flow.toml task to run "
+  action: paste_text
+  arg: "what flow.toml task to run"
+- name: "paste: create flow.toml task "
+  action: paste_text
+  arg: "create flow.toml task"
+- name: "arc: dashboard.electric-sql.cloud"
+  action: open_url
+  arg: "https://dashboard.electric-sql.cloud"
+  app: "Arc"
+- name: "paste: need hive agent "
+  action: paste_text
+  arg: "need hive agent"
+- name: "paste: todo: better"
+  action: paste_text
+  arg: "todo: better"
+- name: "paste: todo: "
+  action: paste_text
+  arg: "todo:"
+- name: "arc: reddit.com (upvotes)"
+  action: open_url
+  arg: "https://reddit.com"
+  app: "Arc"
+- name: "enter: write docs/how-it-works.md"
+  action: sequence
+  arg: ""
+  steps:
+    - action: paste_text
+      arg: "write docs/how-it-works.md"
+    - action: keystroke
+      arg: "return"
+- name: "arc: x.com (bookmarks)"
+  action: open_url
+  arg: "https://x.com"
+  app: "Arc"
+- name: "arc: x.com (likes)"
+  action: open_url
+  arg: "https://x.com"
+  app: "Arc"
+- name: "paste: create cmd in flow where "
+  action: paste_text
+  arg: "create cmd in flow where"
+- name: "arc: gmail.com"
+  action: open_url
+  arg: "https://gmail.com"
+  app: "Arc"
+- name: "arc: drive.google.com"
+  action: open_url
+  arg: "https://drive.google.com"
+  app: "Arc"
+- name: "arc: v0.app"
+  action: open_url
+  arg: "https://v0.app"
+  app: "Arc"
+- name: "w: GoDoc"
+  action: open_url
+  arg: "https://godoc.org/"
+  app: "Safari"
+- name: "linear: focus initiative"
+  action: sequence
+  arg: ""
+  steps:
+    - action: open_app
+      arg: "Linear"
+    - action: keystroke
+      arg: "cmd+1"
+    - action: keystroke
+      arg: "cmd+n"
+- name: "linear: nikiv"
+  action: sequence
+  arg: ""
+  steps:
+    - action: open_app
+      arg: "Linear"
+    - action: keystroke
+      arg: "cmd+1"
+    - action: keystroke
+      arg: "cmd+k"
+    - action: paste_text
+      arg: "team nikiv"
+- name: "linear: linsa"
+  action: sequence
+  arg: ""
+  steps:
+    - action: open_app
+      arg: "Linear"
+    - action: keystroke
+      arg: "cmd+1"
+    - action: keystroke
+      arg: "cmd+k"
+    - action: paste_text
+      arg: "team linsa"
+- name: "linear: gen"
+  action: sequence
+  arg: ""
+  steps:
+    - action: open_app
+      arg: "Linear"
+    - action: keystroke
+      arg: "cmd+1"
+    - action: keystroke
+      arg: "cmd+k"
+    - action: paste_text
+      arg: "team gen"
+- name: "web: GitHub (personal)"
+  action: open_url
+  arg: "https://github.com/nikivdev"
+  app: "Safari"
+- name: "arc: grokipedia.com"
+  action: open_url
+  arg: "https://grokipedia.com"
+  app: "Arc"
+- name: "arc: news.ycombinator/new-comments"
+  action: open_url
+  arg: "https://news.ycombinator/new-comments"
+  app: "Arc"
+- name: "telegram: saved"
+  action: open_url
+  arg: "tg://resolve?domain=nikivi"
+- name: "arc: aistudio.google.com (3)"
+  action: open_url
+  arg: "https://aistudio.google.com"
+  app: "Arc"
+- name: "arc: colab.research.google.com"
+  action: open_url
+  arg: "https://colab.research.google.com"
+  app: "Arc"
+- name: "arc: aistudio.google.com (2)"
+  action: open_url
+  arg: "https://aistudio.google.com"
+  app: "Arc"
