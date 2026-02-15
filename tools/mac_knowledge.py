@@ -548,7 +548,11 @@ def run_index(
             indexed_rows.append(row)
             changed += 1
 
-        deleted = _delete_stale(conn, roots=roots, seen_ms=run_ms)
+        # Only delete stale entries when the full scan completed;
+        # a partial scan (max_files hit) hasn't refreshed last_seen_ms
+        # for entries beyond the cap, so deleting them would be wrong.
+        partial_scan = max_files and scanned > max_files
+        deleted = 0 if partial_scan else _delete_stale(conn, roots=roots, seen_ms=run_ms)
         conn.commit()
     except Exception:
         conn.rollback()
