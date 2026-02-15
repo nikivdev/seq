@@ -64,6 +64,17 @@ def ensure_bridge_binary(receiver_repo: Path, bridge_bin: str) -> Path:
   return path
 
 
+def stop_bridge_and_collect_stderr(bridge: subprocess.Popen[str]) -> str:
+  bridge.terminate()
+  try:
+    _stdout, stderr = bridge.communicate(timeout=1.0)
+    return stderr or ""
+  except subprocess.TimeoutExpired:
+    bridge.kill()
+    _stdout, stderr = bridge.communicate(timeout=1.0)
+    return stderr or ""
+
+
 def main() -> int:
   args = parse_args()
   receiver_repo = Path(os.path.expanduser(args.receiver_repo)).resolve()
@@ -120,6 +131,9 @@ def main() -> int:
       stderr=subprocess.PIPE,
       text=True,
     )
+    exit_code = 0
+    error_message = ""
+    bridge_stderr = ""
     try:
       deadline = time.time() + args.timeout_s
       while time.time() < deadline:
@@ -130,44 +144,41 @@ def main() -> int:
         time.sleep(0.02)
 
       if not recv_sock.exists():
-        stderr = bridge.stderr.read() if bridge.stderr else ""
-        print("error: bridge did not create receiver socket", file=sys.stderr)
-        if stderr:
-          print(stderr, file=sys.stderr)
-        return 4
+        exit_code = 4
+        error_message = "bridge did not create receiver socket"
+      else:
+        payload = {"v": 1, "type": "run", "name": args.macro}
+        sender = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        try:
+          sender.sendto(json.dumps(payload).encode("utf-8"), str(recv_sock))
+        finally:
+          sender.close()
 
-      payload = {"v": 1, "type": "run", "name": args.macro}
-      sender = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-      try:
-        sender.sendto(json.dumps(payload).encode("utf-8"), str(recv_sock))
-      finally:
-        sender.close()
+        if not done.wait(args.timeout_s):
+          exit_code = 5
+          error_message = "no forwarded datagram received from bridge"
 
-      if not done.wait(args.timeout_s):
-        stderr = bridge.stderr.read() if bridge.stderr else ""
-        print("error: no forwarded datagram received from bridge", file=sys.stderr)
-        if stderr:
-          print(stderr, file=sys.stderr)
-        return 5
+        if exit_code == 0 and got["data"] != expected:
+          print("error: forwarded payload mismatch", file=sys.stderr)
+          print(f"expected: {expected!r}", file=sys.stderr)
+          print(f"actual:   {got['data']!r}", file=sys.stderr)
+          return 6
 
-      if got["data"] != expected:
-        print("error: forwarded payload mismatch", file=sys.stderr)
-        print(f"expected: {expected!r}", file=sys.stderr)
-        print(f"actual:   {got['data']!r}", file=sys.stderr)
-        return 6
+        if exit_code == 0:
+          print("ok: bridge forwarded expected command")
+          print(f"bridge: {bridge_bin}")
+          print(f"receiver_socket: {recv_sock}")
+          print(f"forwarded: {got['data'].decode('utf-8', errors='replace').rstrip()}")
+          return 0
 
-      print("ok: bridge forwarded expected command")
-      print(f"bridge: {bridge_bin}")
-      print(f"receiver_socket: {recv_sock}")
-      print(f"forwarded: {got['data'].decode('utf-8', errors='replace').rstrip()}")
-      return 0
     finally:
-      bridge.terminate()
-      try:
-        bridge.wait(timeout=1.0)
-      except subprocess.TimeoutExpired:
-        bridge.kill()
+      bridge_stderr = stop_bridge_and_collect_stderr(bridge)
       t.join(timeout=0.2)
+
+    print(f"error: {error_message}", file=sys.stderr)
+    if bridge_stderr.strip():
+      print(bridge_stderr, file=sys.stderr)
+    return exit_code
 
 
 if __name__ == "__main__":
