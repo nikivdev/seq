@@ -188,4 +188,96 @@ void seq_ch_push_tool_call(seq_ch_writer_t* w,
     w->writer.PushToolCall(std::move(row));
 }
 
+void seq_ch_push_agent_session(seq_ch_writer_t* w,
+                               uint64_t ts_ms,
+                               const char* session_id,
+                               const char* agent,
+                               const char* model,
+                               const char* project_path,
+                               const char* git_branch,
+                               const char* git_commit,
+                               uint64_t dur_ms,
+                               uint32_t turns,
+                               uint64_t total_input_tokens,
+                               uint64_t total_output_tokens,
+                               double total_cost_usd) {
+    if (!w) return;
+    seq::ch::AgentSessionRow row;
+    row.ts_ms = ts_ms;
+    if (session_id) row.session_id = session_id;
+    if (agent) row.agent = agent;
+    if (model) row.model = model;
+    if (project_path) row.project_path = project_path;
+    if (git_branch) row.git_branch = git_branch;
+    if (git_commit) row.git_commit = git_commit;
+    row.dur_ms = dur_ms;
+    row.turns = turns;
+    row.total_input_tokens = total_input_tokens;
+    row.total_output_tokens = total_output_tokens;
+    row.total_cost_usd = total_cost_usd;
+    w->writer.PushAgentSession(std::move(row));
+}
+
+void seq_ch_push_agent_turn(seq_ch_writer_t* w,
+                            uint64_t ts_ms,
+                            const char* session_id,
+                            uint32_t turn_index,
+                            const char* agent,
+                            const char* model,
+                            uint32_t input_tokens,
+                            uint32_t output_tokens,
+                            uint32_t cached_tokens,
+                            uint32_t reasoning_tokens,
+                            uint32_t dur_ms,
+                            double cost_usd,
+                            const char* stop_reason,
+                            uint8_t is_error,
+                            uint32_t context_window,
+                            float context_used_pct) {
+    if (!w) return;
+    seq::ch::AgentTurnRow row;
+    row.ts_ms = ts_ms;
+    if (session_id) row.session_id = session_id;
+    row.turn_index = turn_index;
+    if (agent) row.agent = agent;
+    if (model) row.model = model;
+    row.input_tokens = input_tokens;
+    row.output_tokens = output_tokens;
+    row.cached_tokens = cached_tokens;
+    row.reasoning_tokens = reasoning_tokens;
+    row.dur_ms = dur_ms;
+    row.cost_usd = cost_usd;
+    if (stop_reason) row.stop_reason = stop_reason;
+    row.is_error = is_error;
+    row.context_window = context_window;
+    row.context_used_pct = context_used_pct;
+    w->writer.PushAgentTurn(std::move(row));
+}
+
+void seq_ch_push_agent_tool_call(seq_ch_writer_t* w,
+                                 uint64_t ts_ms,
+                                 const char* session_id,
+                                 uint32_t turn_index,
+                                 const char* agent,
+                                 const char* tool_name,
+                                 const char* input_summary,
+                                 uint32_t dur_ms,
+                                 uint8_t ok,
+                                 uint32_t output_lines,
+                                 uint32_t output_bytes) {
+    if (!w) return;
+    seq::ch::AgentToolCallRow row;
+    row.ts_ms = ts_ms;
+    if (session_id) row.session_id = session_id;
+    row.turn_index = turn_index;
+    if (agent) row.agent = agent;
+    if (tool_name) row.tool_name = tool_name;
+    if (input_summary) row.input_summary = input_summary;
+    row.dur_ms = dur_ms;
+    row.ok = ok;
+    row.output_lines = output_lines;
+    row.output_bytes = output_bytes;
+    w->writer.PushAgentToolCall(std::move(row));
+}
+
 } // extern "C"

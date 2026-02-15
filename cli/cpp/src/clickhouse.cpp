@@ -288,6 +288,156 @@ size_t Client::InsertToolCalls(std::span<const ToolCallRow> rows) {
     return rows.size();
 }
 
+size_t Client::InsertAgentSessions(std::span<const AgentSessionRow> rows) {
+    if (rows.empty()) return 0;
+
+    auto col_ts_ms = std::make_shared<clickhouse::ColumnUInt64>();
+    auto col_session_id = std::make_shared<clickhouse::ColumnString>();
+    auto col_agent = std::make_shared<clickhouse::ColumnString>();
+    auto col_model = std::make_shared<clickhouse::ColumnString>();
+    auto col_project_path = std::make_shared<clickhouse::ColumnString>();
+    auto col_git_branch = std::make_shared<clickhouse::ColumnString>();
+    auto col_git_commit = std::make_shared<clickhouse::ColumnString>();
+    auto col_dur_ms = std::make_shared<clickhouse::ColumnUInt64>();
+    auto col_turns = std::make_shared<clickhouse::ColumnUInt32>();
+    auto col_total_input_tokens = std::make_shared<clickhouse::ColumnUInt64>();
+    auto col_total_output_tokens = std::make_shared<clickhouse::ColumnUInt64>();
+    auto col_total_cost_usd = std::make_shared<clickhouse::ColumnFloat64>();
+
+    for (const auto& row : rows) {
+        col_ts_ms->Append(row.ts_ms);
+        col_session_id->Append(row.session_id);
+        col_agent->Append(row.agent);
+        col_model->Append(row.model);
+        col_project_path->Append(row.project_path);
+        col_git_branch->Append(row.git_branch);
+        col_git_commit->Append(row.git_commit);
+        col_dur_ms->Append(row.dur_ms);
+        col_turns->Append(row.turns);
+        col_total_input_tokens->Append(row.total_input_tokens);
+        col_total_output_tokens->Append(row.total_output_tokens);
+        col_total_cost_usd->Append(row.total_cost_usd);
+    }
+
+    clickhouse::Block block;
+    block.AppendColumn("ts_ms", col_ts_ms);
+    block.AppendColumn("session_id", col_session_id);
+    block.AppendColumn("agent", col_agent);
+    block.AppendColumn("model", col_model);
+    block.AppendColumn("project_path", col_project_path);
+    block.AppendColumn("git_branch", col_git_branch);
+    block.AppendColumn("git_commit", col_git_commit);
+    block.AppendColumn("dur_ms", col_dur_ms);
+    block.AppendColumn("turns", col_turns);
+    block.AppendColumn("total_input_tokens", col_total_input_tokens);
+    block.AppendColumn("total_output_tokens", col_total_output_tokens);
+    block.AppendColumn("total_cost_usd", col_total_cost_usd);
+
+    impl_->client->Insert("agent.sessions", block);
+    return rows.size();
+}
+
+size_t Client::InsertAgentTurns(std::span<const AgentTurnRow> rows) {
+    if (rows.empty()) return 0;
+
+    auto col_ts_ms = std::make_shared<clickhouse::ColumnUInt64>();
+    auto col_session_id = std::make_shared<clickhouse::ColumnString>();
+    auto col_turn_index = std::make_shared<clickhouse::ColumnUInt32>();
+    auto col_agent = std::make_shared<clickhouse::ColumnString>();
+    auto col_model = std::make_shared<clickhouse::ColumnString>();
+    auto col_input_tokens = std::make_shared<clickhouse::ColumnUInt32>();
+    auto col_output_tokens = std::make_shared<clickhouse::ColumnUInt32>();
+    auto col_cached_tokens = std::make_shared<clickhouse::ColumnUInt32>();
+    auto col_reasoning_tokens = std::make_shared<clickhouse::ColumnUInt32>();
+    auto col_dur_ms = std::make_shared<clickhouse::ColumnUInt32>();
+    auto col_cost_usd = std::make_shared<clickhouse::ColumnFloat64>();
+    auto col_stop_reason = std::make_shared<clickhouse::ColumnString>();
+    auto col_is_error = std::make_shared<clickhouse::ColumnUInt8>();
+    auto col_context_window = std::make_shared<clickhouse::ColumnUInt32>();
+    auto col_context_used_pct = std::make_shared<clickhouse::ColumnFloat32>();
+
+    for (const auto& row : rows) {
+        col_ts_ms->Append(row.ts_ms);
+        col_session_id->Append(row.session_id);
+        col_turn_index->Append(row.turn_index);
+        col_agent->Append(row.agent);
+        col_model->Append(row.model);
+        col_input_tokens->Append(row.input_tokens);
+        col_output_tokens->Append(row.output_tokens);
+        col_cached_tokens->Append(row.cached_tokens);
+        col_reasoning_tokens->Append(row.reasoning_tokens);
+        col_dur_ms->Append(row.dur_ms);
+        col_cost_usd->Append(row.cost_usd);
+        col_stop_reason->Append(row.stop_reason);
+        col_is_error->Append(row.is_error);
+        col_context_window->Append(row.context_window);
+        col_context_used_pct->Append(row.context_used_pct);
+    }
+
+    clickhouse::Block block;
+    block.AppendColumn("ts_ms", col_ts_ms);
+    block.AppendColumn("session_id", col_session_id);
+    block.AppendColumn("turn_index", col_turn_index);
+    block.AppendColumn("agent", col_agent);
+    block.AppendColumn("model", col_model);
+    block.AppendColumn("input_tokens", col_input_tokens);
+    block.AppendColumn("output_tokens", col_output_tokens);
+    block.AppendColumn("cached_tokens", col_cached_tokens);
+    block.AppendColumn("reasoning_tokens", col_reasoning_tokens);
+    block.AppendColumn("dur_ms", col_dur_ms);
+    block.AppendColumn("cost_usd", col_cost_usd);
+    block.AppendColumn("stop_reason", col_stop_reason);
+    block.AppendColumn("is_error", col_is_error);
+    block.AppendColumn("context_window", col_context_window);
+    block.AppendColumn("context_used_pct", col_context_used_pct);
+
+    impl_->client->Insert("agent.turns", block);
+    return rows.size();
+}
+
+size_t Client::InsertAgentToolCalls(std::span<const AgentToolCallRow> rows) {
+    if (rows.empty()) return 0;
+
+    auto col_ts_ms = std::make_shared<clickhouse::ColumnUInt64>();
+    auto col_session_id = std::make_shared<clickhouse::ColumnString>();
+    auto col_turn_index = std::make_shared<clickhouse::ColumnUInt32>();
+    auto col_agent = std::make_shared<clickhouse::ColumnString>();
+    auto col_tool_name = std::make_shared<clickhouse::ColumnString>();
+    auto col_input_summary = std::make_shared<clickhouse::ColumnString>();
+    auto col_dur_ms = std::make_shared<clickhouse::ColumnUInt32>();
+    auto col_ok = std::make_shared<clickhouse::ColumnUInt8>();
+    auto col_output_lines = std::make_shared<clickhouse::ColumnUInt32>();
+    auto col_output_bytes = std::make_shared<clickhouse::ColumnUInt32>();
+
+    for (const auto& row : rows) {
+        col_ts_ms->Append(row.ts_ms);
+        col_session_id->Append(row.session_id);
+        col_turn_index->Append(row.turn_index);
+        col_agent->Append(row.agent);
+        col_tool_name->Append(row.tool_name);
+        col_input_summary->Append(row.input_summary);
+        col_dur_ms->Append(row.dur_ms);
+        col_ok->Append(row.ok);
+        col_output_lines->Append(row.output_lines);
+        col_output_bytes->Append(row.output_bytes);
+    }
+
+    clickhouse::Block block;
+    block.AppendColumn("ts_ms", col_ts_ms);
+    block.AppendColumn("session_id", col_session_id);
+    block.AppendColumn("turn_index", col_turn_index);
+    block.AppendColumn("agent", col_agent);
+    block.AppendColumn("tool_name", col_tool_name);
+    block.AppendColumn("input_summary", col_input_summary);
+    block.AppendColumn("dur_ms", col_dur_ms);
+    block.AppendColumn("ok", col_ok);
+    block.AppendColumn("output_lines", col_output_lines);
+    block.AppendColumn("output_bytes", col_output_bytes);
+
+    impl_->client->Insert("agent.tool_calls", block);
+    return rows.size();
+}
+
 void Client::Execute(std::string_view sql) {
     impl_->client->Execute(std::string(sql));
 }
@@ -379,6 +529,42 @@ void AsyncWriter::PushToolCall(ToolCallRow row) noexcept {
     }
 }
 
+void AsyncWriter::PushAgentSession(AgentSessionRow row) noexcept {
+    try {
+        std::lock_guard lock(mu_);
+        agent_session_pending_.push_back(std::move(row));
+        if (agent_session_pending_.size() >= config_.batch_size) {
+            cv_.notify_one();
+        }
+    } catch (...) {
+        error_count_.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+void AsyncWriter::PushAgentTurn(AgentTurnRow row) noexcept {
+    try {
+        std::lock_guard lock(mu_);
+        agent_turn_pending_.push_back(std::move(row));
+        if (agent_turn_pending_.size() >= config_.batch_size) {
+            cv_.notify_one();
+        }
+    } catch (...) {
+        error_count_.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+void AsyncWriter::PushAgentToolCall(AgentToolCallRow row) noexcept {
+    try {
+        std::lock_guard lock(mu_);
+        agent_tool_pending_.push_back(std::move(row));
+        if (agent_tool_pending_.size() >= config_.batch_size) {
+            cv_.notify_one();
+        }
+    } catch (...) {
+        error_count_.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
 void AsyncWriter::Flush() {
     cv_.notify_one();
 }
@@ -387,7 +573,9 @@ size_t AsyncWriter::PendingCount() const noexcept {
     std::lock_guard lock(mu_);
     return mem_pending_.size() + trace_pending_.size() +
            ctx_pending_.size() + superstep_pending_.size() +
-           model_pending_.size() + tool_pending_.size();
+           model_pending_.size() + tool_pending_.size() +
+           agent_session_pending_.size() + agent_turn_pending_.size() +
+           agent_tool_pending_.size();
 }
 
 uint64_t AsyncWriter::ErrorCount() const noexcept {
@@ -418,6 +606,9 @@ void AsyncWriter::DrainAndInsert(Client& client) {
     std::vector<SuperstepRow> superstep_batch;
     std::vector<ModelInvocationRow> model_batch;
     std::vector<ToolCallRow> tool_batch;
+    std::vector<AgentSessionRow> agent_session_batch;
+    std::vector<AgentTurnRow> agent_turn_batch;
+    std::vector<AgentToolCallRow> agent_tool_batch;
 
     {
         std::lock_guard lock(mu_);
@@ -427,6 +618,9 @@ void AsyncWriter::DrainAndInsert(Client& client) {
         drain_queue(superstep_pending_, superstep_batch, config_.batch_size);
         drain_queue(model_pending_, model_batch, config_.batch_size);
         drain_queue(tool_pending_, tool_batch, config_.batch_size);
+        drain_queue(agent_session_pending_, agent_session_batch, config_.batch_size);
+        drain_queue(agent_turn_pending_, agent_turn_batch, config_.batch_size);
+        drain_queue(agent_tool_pending_, agent_tool_batch, config_.batch_size);
     }
 
     if (!mem_batch.empty()) {
@@ -451,6 +645,18 @@ void AsyncWriter::DrainAndInsert(Client& client) {
     }
     if (!tool_batch.empty()) {
         auto n = client.InsertToolCalls(tool_batch);
+        inserted_count_.fetch_add(n, std::memory_order_relaxed);
+    }
+    if (!agent_session_batch.empty()) {
+        auto n = client.InsertAgentSessions(agent_session_batch);
+        inserted_count_.fetch_add(n, std::memory_order_relaxed);
+    }
+    if (!agent_turn_batch.empty()) {
+        auto n = client.InsertAgentTurns(agent_turn_batch);
+        inserted_count_.fetch_add(n, std::memory_order_relaxed);
+    }
+    if (!agent_tool_batch.empty()) {
+        auto n = client.InsertAgentToolCalls(agent_tool_batch);
         inserted_count_.fetch_add(n, std::memory_order_relaxed);
     }
 }

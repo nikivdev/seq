@@ -108,3 +108,28 @@ description = "Follow Arc-related automation (seqd.run + menu.select + open_url.
 name = "watch-arc-json"
 command = "sh -lc \"echo 'READY watch-arc-json'; python3 tools/tail_all_logs.py --last 0 --follow --json --grep 'seqd\\\\.run|menu\\\\.select|AX_(STATUS|PROMPT)|open_url\\\\.activate_app'\""
 description = "Follow Arc-related automation as JSON objects (pasteable)"
+
+[[tasks]]
+name = "scrape-health"
+command = "sh -lc \"curl -fsS ${SEQ_SCRAPER_BASE_URL:-http://127.0.0.1:7444}/health | python3 -m json.tool\""
+description = "Check scraper daemon/API health (used by teach commands)."
+
+[[tasks]]
+name = "teach-dep"
+command = "python3 tools/teach_deps.py dep \"$@\""
+description = "Generate a dependency skill by scraping official docs via the always-on scraper."
+
+[[tasks]]
+name = "teach-auto"
+command = "python3 tools/teach_deps.py auto \"$@\""
+description = "Auto-discover dependencies in this repo and generate skills using scraper jobs."
+
+[[tasks]]
+name = "teach-url"
+command = "python3 tools/teach_deps.py url \"$@\""
+description = "Generate a skill from one or more URLs via scraper jobs."
+
+[[tasks]]
+name = "teach-logs"
+command = "sh -lc \"tail -f ${SEQ_CH_MEM_PATH:-$HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl} | rg --line-buffered 'teach\\\\.'\""
+description = "Tail teach.* scraper skill events from seq_mem.jsonl."

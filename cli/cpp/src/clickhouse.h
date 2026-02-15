@@ -95,6 +95,54 @@ struct ToolCallRow {
     uint8_t ok = 1;
 };
 
+// ─── Agent (Claude/Codex) observability ─────────────────────────────────────
+
+struct AgentSessionRow {
+    uint64_t ts_ms = 0;
+    std::string session_id;
+    std::string agent; // "claude" or "codex"
+    std::string model;
+    std::string project_path;
+    std::string git_branch;
+    std::string git_commit;
+    uint64_t dur_ms = 0;
+    uint32_t turns = 0;
+    uint64_t total_input_tokens = 0;
+    uint64_t total_output_tokens = 0;
+    double total_cost_usd = 0.0;
+};
+
+struct AgentTurnRow {
+    uint64_t ts_ms = 0;
+    std::string session_id;
+    uint32_t turn_index = 0;
+    std::string agent;
+    std::string model;
+    uint32_t input_tokens = 0;
+    uint32_t output_tokens = 0;
+    uint32_t cached_tokens = 0;
+    uint32_t reasoning_tokens = 0;
+    uint32_t dur_ms = 0;
+    double cost_usd = 0.0;
+    std::string stop_reason;
+    uint8_t is_error = 0;
+    uint32_t context_window = 0;
+    float context_used_pct = 0.0f;
+};
+
+struct AgentToolCallRow {
+    uint64_t ts_ms = 0;
+    std::string session_id;
+    uint32_t turn_index = 0;
+    std::string agent;
+    std::string tool_name;
+    std::string input_summary;
+    uint32_t dur_ms = 0;
+    uint8_t ok = 1;
+    uint32_t output_lines = 0;
+    uint32_t output_bytes = 0;
+};
+
 /// Synchronous ClickHouse client using the native binary protocol (port 9000).
 /// Wraps clickhouse-cpp with pimpl to hide the dependency from callers.
 class Client {
@@ -112,6 +160,9 @@ public:
     size_t InsertSupersteps(std::span<const SuperstepRow> rows);
     size_t InsertModelInvocations(std::span<const ModelInvocationRow> rows);
     size_t InsertToolCalls(std::span<const ToolCallRow> rows);
+    size_t InsertAgentSessions(std::span<const AgentSessionRow> rows);
+    size_t InsertAgentTurns(std::span<const AgentTurnRow> rows);
+    size_t InsertAgentToolCalls(std::span<const AgentToolCallRow> rows);
     void Execute(std::string_view sql);
 
 private:
@@ -136,6 +187,9 @@ public:
     void PushSuperstep(SuperstepRow row) noexcept;
     void PushModelInvocation(ModelInvocationRow row) noexcept;
     void PushToolCall(ToolCallRow row) noexcept;
+    void PushAgentSession(AgentSessionRow row) noexcept;
+    void PushAgentTurn(AgentTurnRow row) noexcept;
+    void PushAgentToolCall(AgentToolCallRow row) noexcept;
     void Flush();
 
     size_t PendingCount() const noexcept;
@@ -154,6 +208,9 @@ private:
     std::vector<SuperstepRow> superstep_pending_;
     std::vector<ModelInvocationRow> model_pending_;
     std::vector<ToolCallRow> tool_pending_;
+    std::vector<AgentSessionRow> agent_session_pending_;
+    std::vector<AgentTurnRow> agent_turn_pending_;
+    std::vector<AgentToolCallRow> agent_tool_pending_;
     std::condition_variable cv_;
     std::atomic<bool> stop_{false};
     std::atomic<uint64_t> error_count_{0};

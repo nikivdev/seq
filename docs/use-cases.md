@@ -563,3 +563,39 @@ swift run HiveAlwaysOnAgent
 ~/code/seq/tools/clickhouse/clickhouse-local-client.sh \
     --query "SELECT provider, model, dur_us/1000 AS ms, ok FROM hive.model_invocations ORDER BY ts_ms DESC LIMIT 5"
 ```
+
+---
+
+## 8. On-Demand Dependency Skills (Scraper-Powered)
+
+Generate fresh dependency skills from live docs using the always-on scraper daemon/API.
+
+### Workflow
+
+```
+teach-dep/teach-auto → enqueue scrape jobs → poll completion → compile skill files
+```
+
+### Commands
+
+```bash
+# Check scraper health
+f scrape-health
+
+# Generate one dependency skill
+f teach-dep react
+
+# Auto-generate top dependencies from current repo manifests
+f teach-auto --top 2
+```
+
+### Output
+
+- `.ai/skills/generated/<dep>/SKILL.md`
+- `.ai/skills/generated/<dep>/sources.json`
+
+### Performance
+
+- Uses scraper queue endpoints (`/jobs`) instead of blocking single requests.
+- Adaptive polling and persistent cache (`.ai/internal/teach-cache.json`, default 24h TTL).
+- `--force` for cache bypass when you need the latest docs.

@@ -195,3 +195,186 @@ SELECT
     1 AS errors
 FROM hive.tool_calls
 WHERE ok = 0;
+
+-- ─── Agent coding assistant tables ────────────────────────────────────────
+
+CREATE DATABASE IF NOT EXISTS agent;
+
+-- Every coding agent session (Claude Code or Codex)
+CREATE TABLE IF NOT EXISTS agent.sessions (
+    ts_ms           UInt64,
+    session_id      String,
+    agent           LowCardinality(String),  -- 'claude' or 'codex'
+    model           LowCardinality(String),
+    project_path    String,
+    git_branch      String DEFAULT '',
+    git_commit      String DEFAULT '',
+    dur_ms          UInt64 DEFAULT 0,
+    turns           UInt32 DEFAULT 0,
+    total_input_tokens   UInt64 DEFAULT 0,
+    total_output_tokens  UInt64 DEFAULT 0,
+    total_cost_usd  Float64 DEFAULT 0
+)
+ENGINE = ReplacingMergeTree(ts_ms)
+PARTITION BY toYYYYMMDD(toDateTime(ts_ms / 1000))
+ORDER BY (agent, session_id);
+
+-- Every model turn (unified across Claude + Codex)
+CREATE TABLE IF NOT EXISTS agent.turns (
+    ts_ms           UInt64,
+    session_id      String,
+    turn_index      UInt32,
+    agent           LowCardinality(String),
+    model           LowCardinality(String),
+    input_tokens    UInt32 DEFAULT 0,
+    output_tokens   UInt32 DEFAULT 0,
+    cached_tokens   UInt32 DEFAULT 0,
+    reasoning_tokens UInt32 DEFAULT 0,
+    dur_ms          UInt32 DEFAULT 0,
+    cost_usd        Float64 DEFAULT 0,
+    stop_reason     LowCardinality(String) DEFAULT '',
+    is_error        UInt8 DEFAULT 0,
+    context_window  UInt32 DEFAULT 0,
+    context_used_pct Float32 DEFAULT 0
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMMDD(toDateTime(ts_ms / 1000))
+ORDER BY (agent, session_id, ts_ms);
+
+-- Every tool execution (Bash, Read, Edit, exec_command, etc.)
+CREATE TABLE IF NOT EXISTS agent.tool_calls (
+    ts_ms           UInt64,
+    session_id      String,
+    turn_index      UInt32,
+    agent           LowCardinality(String),
+    tool_name       LowCardinality(String),
+    input_summary   String DEFAULT '',
+    dur_ms          UInt32 DEFAULT 0,
+    ok              UInt8 DEFAULT 1,
+    output_lines    UInt32 DEFAULT 0,
+    output_bytes    UInt32 DEFAULT 0
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMMDD(toDateTime(ts_ms / 1000))
+ORDER BY (tool_name, ts_ms);
+
+-- Token cost per agent per model per hour (auto-updated)
+CREATE TABLE IF NOT EXISTS agent.cost_hourly (
+    agent           LowCardinality(String),
+    model           LowCardinality(String),
+    hour            DateTime,
+    input_tokens    UInt64,
+    output_tokens   UInt64,
+    cached_tokens   UInt64,
+    cost_usd        Float64,
+    calls           UInt64
+)
+ENGINE = SummingMergeTree
+ORDER BY (agent, model, hour);
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS agent.mv_cost_hourly TO agent.cost_hourly AS
+SELECT
+    agent, model,
+    toStartOfHour(toDateTime(ts_ms / 1000)) AS hour,
+    input_tokens, output_tokens, cached_tokens,
+    cost_usd, 1 AS calls
+FROM agent.turns;
+
+-- Tool success rate (auto-updated)
+CREATE TABLE IF NOT EXISTS agent.tool_success (
+    agent           LowCardinality(String),
+    tool_name       LowCardinality(String),
+    day             Date,
+    calls           UInt64,
+    failures        UInt64
+)
+ENGINE = SummingMergeTree
+ORDER BY (agent, tool_name, day);
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS agent.mv_tool_success TO agent.tool_success AS
+SELECT
+    agent, tool_name,
+    toDate(toDateTime(ts_ms / 1000)) AS day,
+    1 AS calls,
+    if(ok = 0, 1, 0) AS failures
+FROM agent.tool_calls;
+
+-- ─── Agent full session capture (lossless + normalized) ───────────────────
+
+-- Lossless JSONL line storage (for replay / reparse when formats change).
+CREATE TABLE IF NOT EXISTS agent.raw_lines (
+    ts_ms           UInt64,
+    agent           LowCardinality(String), -- 'claude' or 'codex'
+    session_id      String,
+    source_path     String,
+    source_offset   UInt64,                 -- byte offset in the source file
+    line_type       LowCardinality(String),
+    json            String                  -- full original JSON line
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMMDD(toDateTime(ts_ms / 1000))
+ORDER BY (agent, session_id, ts_ms, source_offset);
+
+-- Normalized message corpus for querying + RAG.
+CREATE TABLE IF NOT EXISTS agent.messages (
+    ts_ms           UInt64,
+    agent           LowCardinality(String),
+    session_id      String,
+    message_id      String,
+    role            LowCardinality(String), -- user/assistant/developer/system/tool
+    kind            LowCardinality(String), -- text/reasoning/tool_use/tool_result/progress/snapshot
+    model           LowCardinality(String),
+    project_path    String,
+    git_branch      String DEFAULT '',
+    tool_name       LowCardinality(String) DEFAULT '',
+    tool_call_id    String DEFAULT '',
+    ok              UInt8 DEFAULT 1,
+    text            String,
+    json            String DEFAULT ''       -- optional: compact payload for tool blocks
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMMDD(toDateTime(ts_ms / 1000))
+ORDER BY (agent, project_path, session_id, ts_ms);
+
+-- ─── RAG tables over agent sessions ───────────────────────────────────────
+
+CREATE DATABASE IF NOT EXISTS rag;
+
+-- Canonical documents built from agent.messages rows.
+CREATE TABLE IF NOT EXISTS rag.documents (
+    doc_id           String,                 -- agent:session_id:message_id
+    source           LowCardinality(String), -- 'agent_messages'
+    ts_ms            UInt64,
+    agent            LowCardinality(String),
+    project_path     String,
+    session_id       String,
+    message_id       String,
+    role             LowCardinality(String),
+    kind             LowCardinality(String),
+    title            String DEFAULT '',
+    content          String,
+    metadata_json    String DEFAULT ''
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMMDD(toDateTime(ts_ms / 1000))
+ORDER BY (project_path, ts_ms, doc_id);
+
+-- Chunk index for retrieval (embedding optional at first).
+CREATE TABLE IF NOT EXISTS rag.chunks (
+    chunk_id         String,                -- doc_id:<chunk_index>
+    doc_id           String,
+    ts_ms            UInt64,
+    agent            LowCardinality(String),
+    project_path     String,
+    session_id       String,
+    role             LowCardinality(String),
+    kind             LowCardinality(String),
+    chunk_index      UInt32,
+    chunk_text       String,
+    chunk_hash       UInt64,
+    embedding        Array(Float32) DEFAULT CAST([], 'Array(Float32)'),
+    metadata_json    String DEFAULT ''
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMMDD(toDateTime(ts_ms / 1000))
+ORDER BY (project_path, ts_ms, doc_id, chunk_index);
