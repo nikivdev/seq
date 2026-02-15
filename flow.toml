@@ -133,3 +133,23 @@ description = "Generate a skill from one or more URLs via scraper jobs."
 name = "teach-logs"
 command = "sh -lc \"tail -f ${SEQ_CH_MEM_PATH:-$HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl} | rg --line-buffered 'teach\\\\.'\""
 description = "Tail teach.* scraper skill events from seq_mem.jsonl."
+
+[[tasks]]
+name = "kar-uc-build-bridge"
+command = "sh -lc \"cd $HOME/repos/pqrs-org/Karabiner-Elements-user-command-receiver && make build-bridge\""
+description = "Build seq-user-command-bridge in Karabiner user-command receiver repo."
+
+[[tasks]]
+name = "kar-uc-run-bridge"
+command = "sh -lc \"cd $HOME/repos/pqrs-org/Karabiner-Elements-user-command-receiver && make run-bridge\""
+description = "Run seq-user-command-bridge (JSON user_command -> seqd dgram/stream)."
+
+[[tasks]]
+name = "kar-uc-send"
+command = "python3 tools/kar_user_command_send.py \"$@\""
+description = "Send a JSON payload to Karabiner user-command receiver socket."
+
+[[tasks]]
+name = "kar-uc-smoke"
+command = "python3 tools/kar_user_command_smoke.py \"$@\""
+description = "Smoke test bridge forwarding with a mock seqd dgram socket."
