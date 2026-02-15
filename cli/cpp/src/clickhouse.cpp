@@ -670,7 +670,14 @@ void AsyncWriter::FlushThread() {
             cv_.wait_for(lock, std::chrono::milliseconds(config_.flush_interval_ms), [this] {
                 return stop_.load(std::memory_order_relaxed) ||
                        mem_pending_.size() >= config_.batch_size ||
-                       trace_pending_.size() >= config_.batch_size;
+                       trace_pending_.size() >= config_.batch_size ||
+                       ctx_pending_.size() >= config_.batch_size ||
+                       superstep_pending_.size() >= config_.batch_size ||
+                       model_pending_.size() >= config_.batch_size ||
+                       tool_pending_.size() >= config_.batch_size ||
+                       agent_session_pending_.size() >= config_.batch_size ||
+                       agent_turn_pending_.size() >= config_.batch_size ||
+                       agent_tool_pending_.size() >= config_.batch_size;
             });
         }
 
