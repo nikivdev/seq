@@ -378,3 +378,15 @@ CREATE TABLE IF NOT EXISTS rag.chunks (
 ENGINE = MergeTree
 PARTITION BY toYYYYMMDD(toDateTime(ts_ms / 1000))
 ORDER BY (project_path, ts_ms, doc_id, chunk_index);
+
+-- DEPRECATED: chunk_embeddings is superseded by zvec-server (ANN index).
+-- Kept for backward compatibility during migration; will be removed once zvec
+-- is proven stable.  Created dynamically by `seqch rag embed`.
+-- CREATE TABLE IF NOT EXISTS rag.chunk_embeddings (
+--     chunk_id    String,
+--     model       LowCardinality(String),
+--     embedding   Array(Float32),
+--     dim         UInt16,
+--     ts_ms       UInt64
+-- ) ENGINE = ReplacingMergeTree(ts_ms)
+-- ORDER BY (chunk_id, model);

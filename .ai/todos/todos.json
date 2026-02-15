@@ -1,0 +1,12 @@
+[
+  {
+    "id": "75a84deb2f394f1699d057b1d52538c1",
+    "title": "[P2] Smoke test can hang when bridge stays running — /Users/nikiv/code/seq/tools/kar_user_command_smoke.py:146-150",
+    "status": "pending",
+    "created_at": "2026-02-15T13:44:37.616486+00:00",
+    "updated_at": null,
+    "note": "Source: flow review\nCommit: ebb093c6f8c21e60d99af586682f2c1baa78b1ce\nModel: gpt-5.1-codex-max\n\n[P2] Smoke test can hang when bridge stays running — /Users/nikiv/code/seq/tools/kar_user_command_smoke.py:146-150",
+    "session": null,
+    "external_ref": "flow-review-issue-7622e2978e07"
+  }
+]

@@ -9,13 +9,27 @@ import sys
 from pathlib import Path
 
 
+def _karabiner_15915_default_socket() -> str:
+  uid = os.geteuid()
+  return f"/Library/Application Support/org.pqrs/tmp/user/{uid}/user_command_receiver.sock"
+
+
 def default_receiver_socket() -> str:
-  return os.path.expanduser(
-    os.environ.get(
-      "SEQ_USER_COMMAND_SOCKET_PATH",
-      "~/.local/share/karabiner/tmp/karabiner_user_command_receiver.sock",
-    )
-  )
+  env_path = os.environ.get("SEQ_USER_COMMAND_SOCKET_PATH")
+  if env_path:
+    return os.path.expanduser(env_path)
+
+  # Karabiner-Elements 15.9.15+ default.
+  preferred = os.path.expanduser(_karabiner_15915_default_socket())
+  # Legacy pilot path used during earlier bridge experiments.
+  legacy = os.path.expanduser("~/.local/share/karabiner/tmp/karabiner_user_command_receiver.sock")
+
+  # If one socket exists, pick it so ad-hoc testing "just works" across versions.
+  if os.path.exists(preferred):
+    return preferred
+  if os.path.exists(legacy):
+    return legacy
+  return preferred
 
 
 def parse_args() -> argparse.Namespace:

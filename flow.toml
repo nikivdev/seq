@@ -141,8 +141,8 @@ description = "Build seq-user-command-bridge in Karabiner user-command receiver 
 
 [[tasks]]
 name = "kar-uc-run-bridge"
-command = "sh -lc \"cd $HOME/repos/pqrs-org/Karabiner-Elements-user-command-receiver && make run-bridge\""
-description = "Run seq-user-command-bridge (JSON user_command -> seqd dgram/stream)."
+command = "sh -lc \"export SEQ_USER_COMMAND_SOCKET_PATH=\\\"/Library/Application Support/org.pqrs/tmp/user/$(id -u)/user_command_receiver.sock\\\"; cd $HOME/repos/pqrs-org/Karabiner-Elements-user-command-receiver && make run-bridge\""
+description = "Run seq-user-command-bridge (15.9.15 default receiver socket -> seqd dgram/stream)."
 
 [[tasks]]
 name = "kar-uc-send"
@@ -153,3 +153,39 @@ description = "Send a JSON payload to Karabiner user-command receiver socket."
 name = "kar-uc-smoke"
 command = "python3 tools/kar_user_command_smoke.py \"$@\""
 description = "Smoke test bridge forwarding with a mock seqd dgram socket."
+
+[[tasks]]
+name = "kar-uc-bench"
+command = "python3 tools/kar_user_command_latency_bench.py \"$@\""
+description = "Benchmark direct seqd dgram vs send_user_command bridge overhead."
+
+[[tasks]]
+name = "zvec-server"
+command = "sh ./cli/zvec/run.sh start"
+description = "Start zvec vector search server (HTTP :8900)"
+daemon = true
+
+[[tasks]]
+name = "mac-kg-index"
+command = "python3 tools/mac_knowledge.py index \"$@\""
+description = "Index local macOS files/metadata into seq mac knowledge DB (SQLite + FTS, optional zvec upsert)."
+
+[[tasks]]
+name = "mac-kg-watch"
+command = "python3 tools/mac_knowledge.py watch \"$@\""
+description = "Continuously refresh mac knowledge DB with fast incremental scans."
+
+[[tasks]]
+name = "mac-kg-search"
+command = "python3 tools/mac_knowledge.py search \"$@\""
+description = "Search local mac knowledge DB (lexical, optional --vector via zvec)."
+
+[[tasks]]
+name = "mac-kg-who-watches"
+command = "python3 tools/mac_knowledge.py who-watches \"$@\""
+description = "Show inferred watchers/dependencies for a file path (e.g. kar config.ts)."
+
+[[tasks]]
+name = "mac-kg-stats"
+command = "python3 tools/mac_knowledge.py stats \"$@\""
+description = "Show mac knowledge DB stats."

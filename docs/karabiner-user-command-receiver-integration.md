@@ -1,6 +1,6 @@
 # Karabiner User-Command Receiver Integration (seq)
 
-This guide explains how to test Karabiner's upcoming `send_user_command` integration on top of seq **without breaking the current `seqSocket(...)` path**.
+This guide explains how to test Karabiner `send_user_command` integration on top of seq **without breaking the current `seqSocket(...)` path**.
 
 ## Compatibility goals
 
@@ -17,11 +17,51 @@ This guide explains how to test Karabiner's upcoming `send_user_command` integra
   - `~/repos/pqrs-org/Karabiner-Elements-user-command-receiver`
   - executable: `seq-user-command-bridge`
 - bridge behavior:
-  - receives JSON payloads on `~/.local/share/karabiner/tmp/karabiner_user_command_receiver.sock`
+  - receives JSON payloads on `/Library/Application Support/org.pqrs/tmp/user/<uid>/user_command_receiver.sock` (Karabiner 15.9.15+ default)
+  - legacy fallback path still supported for pilot compatibility:
+    - `~/.local/share/karabiner/tmp/karabiner_user_command_receiver.sock`
   - maps to seqd lines:
     - `{"v":1,"type":"run","name":"X"}` -> `RUN X`
     - `{"v":1,"type":"open_app_toggle","app":"Safari"}` -> `OPEN_APP_TOGGLE Safari`
   - forwards dgram-first, stream fallback.
+
+## Karabiner 15.9.15 contract (important)
+
+Upstream changed from `socket_command` to `send_user_command` for this path.
+
+Karabiner-side `to` entry shape:
+
+```json
+{
+  "send_user_command": {
+    "payload": {
+      "v": 1,
+      "type": "run",
+      "name": "open Safari new tab"
+    }
+  }
+}
+```
+
+Notes:
+
+- `payload` is required.
+- `endpoint` is optional; if omitted, Karabiner sends to:
+  - `/Library/Application Support/org.pqrs/tmp/user/<uid>/user_command_receiver.sock`
+- To target a non-default receiver socket, include:
+
+```json
+{
+  "send_user_command": {
+    "endpoint": "/custom/path/to/user_command_receiver.sock",
+    "payload": {
+      "v": 1,
+      "type": "run",
+      "name": "open Safari new tab"
+    }
+  }
+}
+```
 
 ## Flow tasks added in seq
 
@@ -29,6 +69,7 @@ This guide explains how to test Karabiner's upcoming `send_user_command` integra
 - `f kar-uc-run-bridge`
 - `f kar-uc-send`
 - `f kar-uc-smoke`
+- `f kar-uc-bench`
 
 ## What this setup gives you
 
@@ -77,6 +118,37 @@ Expected:
 - bridge logs forwarding activity
 - seq executes the macro as if it came from legacy `seqSocket(...)`.
 
+### 2b) Transport latency benchmark (maintainer-facing)
+
+This compares transport overhead only:
+
+- direct seqd datagram path
+- `send_user_command` -> bridge -> seqd datagram path
+
+```bash
+cd ~/code/seq
+f kar-uc-bench --iterations 300 --warmup 40 --json-out /tmp/kar_uc_bench.json
+```
+
+Focus on:
+
+- `bridge_via_user_command` p95/p99 absolute values
+- `p95_overhead_ratio` stability across runs
+
+For direct apples-to-apples comparison against process spawning, include process baselines:
+
+```bash
+cd ~/code/seq
+f kar-uc-bench --iterations 300 --warmup 40 --include-process-baseline --json-out /tmp/kar_uc_compare.json
+```
+
+This outputs per-scenario rows for:
+
+- `run_macro`
+- `open_app_toggle`
+- `open_with_app` (zed-style path)
+- `process_seq_ping` and `shell_seq_ping` (if enabled)
+
 ### Maintainer quick path
 
 ```bash
@@ -121,6 +193,18 @@ Rollback is immediate and safe:
 
 No seq daemon protocol change is required for rollback.
 
+## Troubleshooting
+
+If receiver start logs `bind(dgram) failed errno=2`, the parent directory for the receiver socket is missing.
+
+For legacy pilot path:
+
+```bash
+mkdir -p ~/.local/share/karabiner/tmp
+```
+
+For 15.9.15 default path, ensure Karabiner has started at least once for the logged-in user.
+
 ## Notes
 
 - This integration is additive. It does not replace seqd socket protocol.
@@ -129,7 +213,8 @@ No seq daemon protocol change is required for rollback.
 ## Local validation commands (used while preparing this doc)
 
 ```bash
-python3 -m py_compile tools/kar_user_command_send.py tools/kar_user_command_smoke.py
+python3 -m py_compile tools/kar_user_command_send.py tools/kar_user_command_smoke.py tools/kar_user_command_latency_bench.py
 python3 tools/kar_user_command_smoke.py --timeout-s 4
+python3 tools/kar_user_command_latency_bench.py --iterations 80 --warmup 20 --json-out /tmp/kar_uc_bench_smoke.json
 f kar-uc-smoke --timeout-s 4
 ```
