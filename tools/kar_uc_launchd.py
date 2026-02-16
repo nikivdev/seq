@@ -34,8 +34,16 @@ def launchd_target(label: str) -> str:
   return f"gui/{os.getuid()}/{label}"
 
 
-def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-  return subprocess.run(cmd, check=check, capture_output=True, text=True)
+def run(
+  cmd: list[str], check: bool = True, cwd: Path | None = None
+) -> subprocess.CompletedProcess[str]:
+  return subprocess.run(
+    cmd,
+    check=check,
+    capture_output=True,
+    text=True,
+    cwd=str(cwd) if cwd is not None else None,
+  )
 
 
 def build_plist(
@@ -85,7 +93,9 @@ def ensure_bridge_binary(bridge_bin: Path, build_if_missing: bool) -> None:
       "build it first with: cd ~/repos/pqrs-org/Karabiner-Elements-user-command-receiver && make build-bridge-release"
     )
   receiver_repo = bridge_bin.parent.parent.parent
-  res = run(["make", "build-bridge-release"], check=False)
+  if not receiver_repo.exists():
+    raise FileNotFoundError(f"bridge repo not found: {receiver_repo}")
+  res = run(["make", "build-bridge-release"], check=False, cwd=receiver_repo)
   if res.returncode != 0:
     raise RuntimeError(
       "failed to build release bridge:\n"
@@ -229,4 +239,3 @@ def main() -> int:
 
 if __name__ == "__main__":
   raise SystemExit(main())
-

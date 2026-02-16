@@ -1632,8 +1632,21 @@ std::optional<pid_t> pid_for_app(std::string_view app) {
       NSRunningApplication* a =
           [NSRunningApplication runningApplicationWithProcessIdentifier:cached.pid];
       if (a) {
-        update_cache_from_running_app(app_str, a);
-        return a.processIdentifier;
+        NSString* cached_bundle = cached.bundle_id.empty()
+                                      ? nil
+                                      : [NSString stringWithUTF8String:cached.bundle_id.c_str()];
+        bool pid_matches = false;
+        if (cached_bundle && a.bundleIdentifier &&
+            [a.bundleIdentifier isEqualToString:cached_bundle]) {
+          pid_matches = true;
+        } else if (!cached_bundle && a.localizedName &&
+                   [a.localizedName isEqualToString:app_name]) {
+          pid_matches = true;
+        }
+        if (pid_matches) {
+          update_cache_from_running_app(app_str, a);
+          return a.processIdentifier;
+        }
       }
     }
     NSString* cached_bundle = cached.bundle_id.empty()
