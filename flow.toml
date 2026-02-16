@@ -136,13 +136,48 @@ description = "Tail teach.* scraper skill events from seq_mem.jsonl."
 
 [[tasks]]
 name = "kar-uc-build-bridge"
-command = "sh -lc \"cd $HOME/repos/pqrs-org/Karabiner-Elements-user-command-receiver && make build-bridge\""
-description = "Build seq-user-command-bridge in Karabiner user-command receiver repo."
+command = "sh -lc \"cd $HOME/repos/pqrs-org/Karabiner-Elements-user-command-receiver && make build-bridge-release\""
+description = "Build release seq-user-command-bridge in Karabiner user-command receiver repo."
 
 [[tasks]]
 name = "kar-uc-run-bridge"
+command = "sh -lc \"export SEQ_USER_COMMAND_SOCKET_PATH=\\\"/Library/Application Support/org.pqrs/tmp/user/$(id -u)/user_command_receiver.sock\\\"; export SEQ_BRIDGE_HIGH_PRIORITY=${SEQ_BRIDGE_HIGH_PRIORITY:-1}; cd $HOME/repos/pqrs-org/Karabiner-Elements-user-command-receiver && make run-bridge-release\""
+description = "Run release seq-user-command-bridge (high-priority by default) for low-latency forwarding."
+
+[[tasks]]
+name = "kar-uc-run-bridge-debug"
 command = "sh -lc \"export SEQ_USER_COMMAND_SOCKET_PATH=\\\"/Library/Application Support/org.pqrs/tmp/user/$(id -u)/user_command_receiver.sock\\\"; cd $HOME/repos/pqrs-org/Karabiner-Elements-user-command-receiver && make run-bridge\""
-description = "Run seq-user-command-bridge (15.9.15 default receiver socket -> seqd dgram/stream)."
+description = "Run debug seq-user-command-bridge (swift run) for development."
+
+[[tasks]]
+name = "kar-uc-launchd-install"
+command = "python3 tools/kar_uc_launchd.py install --build-if-missing"
+description = "Install+load always-on launchd agent for release seq-user-command-bridge."
+
+[[tasks]]
+name = "kar-uc-launchd-restart"
+command = "python3 tools/kar_uc_launchd.py restart --build-if-missing"
+description = "Restart launchd bridge agent after rebuilding release binary."
+
+[[tasks]]
+name = "kar-uc-launchd-stop"
+command = "python3 tools/kar_uc_launchd.py stop"
+description = "Stop launchd bridge agent."
+
+[[tasks]]
+name = "kar-uc-launchd-status"
+command = "python3 tools/kar_uc_launchd.py status"
+description = "Show launchd bridge agent status."
+
+[[tasks]]
+name = "kar-uc-launchd-uninstall"
+command = "python3 tools/kar_uc_launchd.py uninstall"
+description = "Unload and remove launchd bridge agent plist."
+
+[[tasks]]
+name = "kar-uc-launchd-logs"
+command = "sh -lc \"tail -n 80 -f $HOME/code/seq/cli/cpp/out/logs/kar_uc_bridge.stderr.log\""
+description = "Tail bridge launchd stderr log."
 
 [[tasks]]
 name = "kar-uc-send"
@@ -158,6 +193,21 @@ description = "Smoke test bridge forwarding with a mock seqd dgram socket."
 name = "kar-uc-bench"
 command = "python3 tools/kar_user_command_latency_bench.py \"$@\""
 description = "Benchmark direct seqd dgram vs send_user_command bridge overhead."
+
+[[tasks]]
+name = "kar-uc-e2e-ab"
+command = "python3 tools/kar_user_command_e2e_ab.py \"$@\""
+description = "A/B benchmark full software flow: legacy shell path vs send_user_command path."
+
+[[tasks]]
+name = "kar-uc-system-check"
+command = "sh -lc \"cd $HOME/repos/pqrs-org/Karabiner-Elements-user-command-receiver && make run-system-check\""
+description = "Check system pressure and readiness for clean latency testing (READY/NOT_READY verdict)."
+
+[[tasks]]
+name = "kar-uc-system-check-report"
+command = "sh -lc \"cd $HOME/repos/pqrs-org/Karabiner-Elements-user-command-receiver && swift run kar-uc-system-check || true\""
+description = "Report system pressure/readiness without failing task status."
 
 [[tasks]]
 name = "zvec-server"

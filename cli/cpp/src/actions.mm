@@ -69,6 +69,7 @@ struct AppCacheEntry {
   std::string name;
   std::string bundle_id;
   std::string app_path;
+  pid_t pid = 0;
 };
 
 struct AppCache {
@@ -116,14 +117,17 @@ AppCacheEntry get_cache_snapshot(const std::string& name) {
   if (it != cache.entries.end()) {
     return it->second;
   }
-  auto [inserted, _] = cache.entries.emplace(name, AppCacheEntry{name, "", ""});
+  auto [inserted, _] = cache.entries.emplace(name, AppCacheEntry{name, "", "", 0});
   return inserted->second;
 }
 
-void update_cache(const std::string& name, const std::string& bundle_id, const std::string& app_path) {
+void update_cache(const std::string& name,
+                  const std::string& bundle_id,
+                  const std::string& app_path,
+                  pid_t pid = 0) {
   auto& cache = app_cache();
   std::lock_guard<std::mutex> lock(cache.mu);
-  auto [it, inserted] = cache.entries.try_emplace(name, AppCacheEntry{name, bundle_id, app_path});
+  auto [it, inserted] = cache.entries.try_emplace(name, AppCacheEntry{name, bundle_id, app_path, pid});
   if (!inserted) {
     if (!bundle_id.empty()) {
       it->second.bundle_id = bundle_id;
@@ -131,7 +135,88 @@ void update_cache(const std::string& name, const std::string& bundle_id, const s
     if (!app_path.empty()) {
       it->second.app_path = app_path;
     }
+    if (pid > 0) {
+      it->second.pid = pid;
+    }
   }
+}
+
+void update_cache_from_running_app(const std::string& name, NSRunningApplication* app) {
+  if (!app) return;
+  std::string bundle_id;
+  std::string app_path;
+  if (app.bundleIdentifier) {
+    bundle_id = std::string([app.bundleIdentifier UTF8String]);
+  }
+  if (app.bundleURL && app.bundleURL.path) {
+    app_path = std::string([app.bundleURL.path UTF8String]);
+  }
+  update_cache(name, bundle_id, app_path, app.processIdentifier);
+}
+
+uint64_t now_steady_us() {
+  using namespace std::chrono;
+  return static_cast<uint64_t>(duration_cast<microseconds>(
+                                   steady_clock::now().time_since_epoch())
+                                   .count());
+}
+
+bool open_action_stage_trace_enabled() {
+  static int enabled = [] {
+    const char* env = std::getenv("SEQ_ACTION_STAGE_TRACE");
+    if (!env || !*env) return 0;
+    return std::atoi(env) != 0 ? 1 : 0;
+  }();
+  return enabled != 0;
+}
+
+void trace_open_stage(std::string_view event,
+                      const std::string& target,
+                      std::string_view decision,
+                      bool ok,
+                      uint64_t total_us,
+                      uint64_t front_check_us,
+                      uint64_t pid_lookup_us,
+                      uint64_t bundle_lookup_us,
+                      uint64_t scan_lookup_us,
+                      uint64_t activate_us,
+                      uint64_t launch_us) {
+  if (!open_action_stage_trace_enabled()) return;
+  thread_local std::string detail;
+  detail.clear();
+  detail.reserve(target.size() + decision.size() + 220);
+  detail.append("target=").append(target);
+  detail.append("\tdecision=").append(decision.data(), decision.size());
+  detail.append("\tok=").append(ok ? "1" : "0");
+  detail.append("\ttotal_us=").append(std::to_string(total_us));
+  detail.append("\tfront_check_us=").append(std::to_string(front_check_us));
+  detail.append("\tpid_lookup_us=").append(std::to_string(pid_lookup_us));
+  detail.append("\tbundle_lookup_us=").append(std::to_string(bundle_lookup_us));
+  detail.append("\tscan_lookup_us=").append(std::to_string(scan_lookup_us));
+  detail.append("\tactivate_us=").append(std::to_string(activate_us));
+  detail.append("\tlaunch_us=").append(std::to_string(launch_us));
+  trace::event(event, detail);
+}
+
+void trace_open_with_app_stage(const std::string& app_path,
+                               const std::string& file_path,
+                               std::string_view decision,
+                               bool ok,
+                               uint64_t total_us,
+                               uint64_t prep_us,
+                               uint64_t open_us) {
+  if (!open_action_stage_trace_enabled()) return;
+  thread_local std::string detail;
+  detail.clear();
+  detail.reserve(app_path.size() + file_path.size() + decision.size() + 220);
+  detail.append("app=").append(app_path);
+  detail.append("\tfile=").append(file_path);
+  detail.append("\tdecision=").append(decision.data(), decision.size());
+  detail.append("\tok=").append(ok ? "1" : "0");
+  detail.append("\ttotal_us=").append(std::to_string(total_us));
+  detail.append("\tprep_us=").append(std::to_string(prep_us));
+  detail.append("\topen_us=").append(std::to_string(open_us));
+  trace::event("actions.open_with_app.stage", detail);
 }
 
 void post_key(CGKeyCode key, CGEventFlags flags, std::optional<pid_t> pid = std::nullopt) {
@@ -423,18 +508,55 @@ Result open_app_impl(std::string_view app, bool toggle) {
   if (app.empty()) {
     return {false, "open_app missing arg"};
   }
+  uint64_t total_start_us = now_steady_us();
+  uint64_t front_check_us = 0;
+  uint64_t pid_lookup_us = 0;
+  uint64_t bundle_lookup_us = 0;
+  uint64_t scan_lookup_us = 0;
+  uint64_t activate_us = 0;
+  uint64_t launch_us = 0;
+
   @autoreleasepool {
     std::string app_str(app);
     NSString* app_name = [NSString stringWithUTF8String:app_str.c_str()];
     if (app_name == nil) {
+      trace_open_stage("actions.open_app.stage",
+                       app_str,
+                       "invalid_utf8",
+                       false,
+                       now_steady_us() - total_start_us,
+                       front_check_us,
+                       pid_lookup_us,
+                       bundle_lookup_us,
+                       scan_lookup_us,
+                       activate_us,
+                       launch_us);
       return {false, "open_app invalid app name"};
     }
 
+    std::string decision = "unknown";
+    auto finish = [&](Result r) -> Result {
+      trace_open_stage("actions.open_app.stage",
+                       app_str,
+                       decision,
+                       r.ok,
+                       now_steady_us() - total_start_us,
+                       front_check_us,
+                       pid_lookup_us,
+                       bundle_lookup_us,
+                       scan_lookup_us,
+                       activate_us,
+                       launch_us);
+      return r;
+    };
+
     auto open_via_ls = [&]() -> Result {
+      uint64_t t0 = now_steady_us();
       // `open -a` tends to behave more like "user initiated activation" than
       // NSRunningApplication.activate from a background daemon.
       std::string error;
       int code = process::spawn({"/usr/bin/open", "-a", app_str}, &error);
+      launch_us += now_steady_us() - t0;
       if (code != 0) {
         return {false, "open -a failed"};
       }
@@ -446,6 +568,7 @@ Result open_app_impl(std::string_view app, bool toggle) {
                                   ? nil
                                   : [NSString stringWithUTF8String:cached.bundle_id.c_str()];
 
+    uint64_t t_front = now_steady_us();
     NSRunningApplication* front = [[NSWorkspace sharedWorkspace] frontmostApplication];
     bool is_front = false;
     if (cached_bundle && front.bundleIdentifier &&
@@ -460,36 +583,57 @@ Result open_app_impl(std::string_view app, bool toggle) {
         is_front = true;
       }
     }
+    front_check_us += now_steady_us() - t_front;
 
     if (is_front) {
       if (toggle) {
         post_cmd_key((CGKeyCode)kVK_Tab);
+        decision = "already_front_cmd_tab";
+      } else {
+        decision = "already_front";
       }
-      return {true, ""};
+      return finish({true, ""});
     }
 
     NSRunningApplication* target_app = nil;
-    if (cached_bundle) {
-      NSArray* matches = [NSRunningApplication runningApplicationsWithBundleIdentifier:cached_bundle];
-      if ([matches count] > 0) {
-        target_app = matches[0];
-      }
-    }
-    if (!target_app) {
-      for (NSRunningApplication* running_app in [[NSWorkspace sharedWorkspace] runningApplications]) {
-        if ([running_app.localizedName isEqualToString:app_name]) {
-          target_app = running_app;
-          if (running_app.bundleIdentifier) {
-            update_cache(app_str,
-                         std::string([running_app.bundleIdentifier UTF8String]),
-                         running_app.bundleURL ? std::string([running_app.bundleURL.path UTF8String]) : "");
-          }
-          break;
+    if (cached.pid > 0) {
+      uint64_t t_pid = now_steady_us();
+      target_app = [NSRunningApplication runningApplicationWithProcessIdentifier:cached.pid];
+      pid_lookup_us += now_steady_us() - t_pid;
+
+      if (target_app) {
+        if (cached_bundle && target_app.bundleIdentifier &&
+            ![target_app.bundleIdentifier isEqualToString:cached_bundle]) {
+          target_app = nil;
+        } else if (!cached_bundle && target_app.localizedName &&
+                   ![target_app.localizedName isEqualToString:app_name]) {
+          target_app = nil;
         }
       }
     }
 
+    if (!target_app && cached_bundle) {
+      uint64_t t_bundle = now_steady_us();
+      NSArray* matches = [NSRunningApplication runningApplicationsWithBundleIdentifier:cached_bundle];
+      if ([matches count] > 0) {
+        target_app = matches[0];
+      }
+      bundle_lookup_us += now_steady_us() - t_bundle;
+    }
+    if (!target_app) {
+      uint64_t t_scan = now_steady_us();
+      for (NSRunningApplication* running_app in [[NSWorkspace sharedWorkspace] runningApplications]) {
+        if ([running_app.localizedName isEqualToString:app_name]) {
+          target_app = running_app;
+          update_cache_from_running_app(app_str, running_app);
+          break;
+        }
+      }
+      scan_lookup_us += now_steady_us() - t_scan;
+    }
+
     if (target_app) {
+      update_cache_from_running_app(app_str, target_app);
       // Use IgnoringOtherApps for reliable activation from background daemon context.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -497,15 +641,19 @@ Result open_app_impl(std::string_view app, bool toggle) {
           (NSApplicationActivationOptions)(NSApplicationActivateAllWindows |
                                           NSApplicationActivateIgnoringOtherApps);
 #pragma clang diagnostic pop
+      uint64_t t_activate = now_steady_us();
       bool ok = [target_app activateWithOptions:opts];
+      activate_us += now_steady_us() - t_activate;
       if (ok) {
         // Trust the activation result. Polling is_frontmost() adds latency and
         // can race with WindowServer compositing. The app observer tracks
         // actual transitions via NSWorkspaceDidActivateApplicationNotification.
-        return {true, ""};
+        decision = (cached.pid > 0) ? "activate_running_cached_pid" : "activate_running";
+        return finish({true, ""});
       }
       // activateWithOptions returned NO — app may have been terminated between
       // the runningApplications query and now. Fall through to launch path.
+      decision = "activate_failed";
     }
 
     // App is not running (or activation failed) — need to launch it.
@@ -520,12 +668,18 @@ Result open_app_impl(std::string_view app, bool toggle) {
         if (bundle && bundle.bundleIdentifier) {
           update_cache(app_str,
                        std::string([bundle.bundleIdentifier UTF8String]),
-                       std::string([app_path UTF8String]));
+                       std::string([app_path UTF8String]),
+                       0);
         }
       }
     }
     // `open -a` is the most reliable way to launch AND activate from a background daemon.
-    return open_via_ls();
+    if (decision != "activate_failed") {
+      decision = "launch";
+    } else {
+      decision = "launch_after_activate_failed";
+    }
+    return finish(open_via_ls());
   }
 
   return {true, ""};
@@ -541,13 +695,34 @@ Result open_app_toggle(std::string_view app) {
 }
 
 Result open_with_app(std::string_view app_path, std::string_view file_path) {
+  uint64_t total_start_us = now_steady_us();
+  uint64_t prep_us = 0;
+  uint64_t open_us = 0;
+  std::string app_path_str(app_path);
+  std::string file_path_str(file_path);
   if (app_path.empty() || file_path.empty()) {
+    trace_open_with_app_stage(app_path_str,
+                              file_path_str,
+                              "missing_arg",
+                              false,
+                              now_steady_us() - total_start_us,
+                              prep_us,
+                              open_us);
     return {false, "open_with_app: missing app_path or file_path"};
   }
   @autoreleasepool {
-    NSString* app_str = [NSString stringWithUTF8String:std::string(app_path).c_str()];
-    NSString* file_str = [NSString stringWithUTF8String:std::string(file_path).c_str()];
+    uint64_t t_prep = now_steady_us();
+    NSString* app_str = [NSString stringWithUTF8String:app_path_str.c_str()];
+    NSString* file_str = [NSString stringWithUTF8String:file_path_str.c_str()];
     if (!app_str || !file_str) {
+      prep_us += now_steady_us() - t_prep;
+      trace_open_with_app_stage(app_path_str,
+                                file_path_str,
+                                "invalid_utf8",
+                                false,
+                                now_steady_us() - total_start_us,
+                                prep_us,
+                                open_us);
       return {false, "open_with_app: invalid UTF-8"};
     }
 
@@ -556,13 +731,23 @@ Result open_with_app(std::string_view app_path, std::string_view file_path) {
 
     NSWorkspaceOpenConfiguration* config = [NSWorkspaceOpenConfiguration configuration];
     config.activates = YES;
+    prep_us += now_steady_us() - t_prep;
 
     // Synchronous-enough: openURLs dispatches the activation Mach message before returning
     // the completion handler. The app will be activated within one display frame.
+    uint64_t t_open = now_steady_us();
     [[NSWorkspace sharedWorkspace] openURLs:@[file_url]
                        withApplicationAtURL:app_url
                               configuration:config
                           completionHandler:nil];
+    open_us += now_steady_us() - t_open;
+    trace_open_with_app_stage(app_path_str,
+                              file_path_str,
+                              "open_urls",
+                              true,
+                              now_steady_us() - total_start_us,
+                              prep_us,
+                              open_us);
     return {true, ""};
   }
 }
@@ -1443,6 +1628,14 @@ std::optional<pid_t> pid_for_app(std::string_view app) {
     if (app_name == nil) return std::nullopt;
 
     AppCacheEntry cached = get_cache_snapshot(app_str);
+    if (cached.pid > 0) {
+      NSRunningApplication* a =
+          [NSRunningApplication runningApplicationWithProcessIdentifier:cached.pid];
+      if (a) {
+        update_cache_from_running_app(app_str, a);
+        return a.processIdentifier;
+      }
+    }
     NSString* cached_bundle = cached.bundle_id.empty()
                                   ? nil
                                   : [NSString stringWithUTF8String:cached.bundle_id.c_str()];
@@ -1450,17 +1643,14 @@ std::optional<pid_t> pid_for_app(std::string_view app) {
       NSArray* matches = [NSRunningApplication runningApplicationsWithBundleIdentifier:cached_bundle];
       if ([matches count] > 0) {
         NSRunningApplication* a = matches[0];
+        update_cache_from_running_app(app_str, a);
         return a.processIdentifier;
       }
     }
 
     for (NSRunningApplication* running_app in [[NSWorkspace sharedWorkspace] runningApplications]) {
       if (running_app.localizedName && [running_app.localizedName isEqualToString:app_name]) {
-        if (running_app.bundleIdentifier) {
-          update_cache(app_str,
-                       std::string([running_app.bundleIdentifier UTF8String]),
-                       running_app.bundleURL ? std::string([running_app.bundleURL.path UTF8String]) : "");
-        }
+        update_cache_from_running_app(app_str, running_app);
         return running_app.processIdentifier;
       }
     }
@@ -1764,7 +1954,7 @@ void prewarm_app_cache() {
       if (app.bundleURL && app.bundleURL.path) {
         path_str = std::string([app.bundleURL.path UTF8String]);
       }
-      update_cache(name_str, bundle_str, path_str);
+      update_cache(name_str, bundle_str, path_str, app.processIdentifier);
     }
   }
 }

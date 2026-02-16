@@ -8,5 +8,15 @@
     "note": "Source: flow review\nCommit: ebb093c6f8c21e60d99af586682f2c1baa78b1ce\nModel: gpt-5.1-codex-max\n\n[P2] Smoke test can hang when bridge stays running — /Users/nikiv/code/seq/tools/kar_user_command_smoke.py:146-150",
     "session": null,
     "external_ref": "flow-review-issue-7622e2978e07"
+  },
+  {
+    "id": "6578d93ae24d404582270fbc0b0237cc",
+    "title": "[P1] Avoid deleting unscanned entries when max-files is hit — /Users/nikiv/code/seq/tools/mac_knowledge.py:551-552",
+    "status": "pending",
+    "created_at": "2026-02-15T15:09:56.770813+00:00",
+    "updated_at": null,
+    "note": "Source: flow review\nCommit: 7a4f7d93fe0c6a2e9d45bf71fada4a2299b4dc56\nModel: gpt-5.1-codex-max\n\n[P1] Avoid deleting unscanned entries when max-files is hit — /Users/nikiv/code/seq/tools/mac_knowledge.py:551-552",
+    "session": null,
+    "external_ref": "flow-review-issue-4ce53ec1d653"
   }
 ]

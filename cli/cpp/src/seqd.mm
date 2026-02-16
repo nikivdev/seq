@@ -726,6 +726,36 @@ uint64_t front_app_last_update_ms() {
   return state.last_update_ms;
 }
 
+bool open_app_force_os_front_query() {
+  static int mode = [] {
+    const char* env = std::getenv("SEQ_OPEN_APP_FORCE_OS_FRONT_QUERY");
+    if (!env || !*env) return 0;
+    return std::atoi(env) != 0 ? 1 : 0;
+  }();
+  return mode != 0;
+}
+
+uint64_t open_app_front_cache_max_age_ms() {
+  static uint64_t value = [] {
+    const char* env = std::getenv("SEQ_OPEN_APP_FRONT_CACHE_MAX_AGE_MS");
+    if (!env || !*env) return (uint64_t)120;
+    long long parsed = std::atoll(env);
+    if (parsed < 0) parsed = 0;
+    if (parsed > 10'000) parsed = 10'000;
+    return (uint64_t)parsed;
+  }();
+  return value;
+}
+
+bool open_app_allow_seqmem_prev_fallback() {
+  static int mode = [] {
+    const char* env = std::getenv("SEQ_OPEN_APP_ALLOW_SEQMEM_PREV_FALLBACK");
+    if (!env || !*env) return 0;
+    return std::atoi(env) != 0 ? 1 : 0;
+  }();
+  return mode != 0;
+}
+
 void start_app_observer() {
   @autoreleasepool {
     NSRunningApplication* front = [[NSWorkspace sharedWorkspace] frontmostApplication];
@@ -929,17 +959,31 @@ bool activate_app_fast(const AppInfo& info) {
 }
 
 std::string handle_open_app_with_state(const std::string& app, bool toggle) {
-  // Always query the OS for "is target currently frontmost?" correctness.
-  // Cached state is still used for "previous app" selection.
+  AppInfo front;
   AppInfo os_front;
-  @autoreleasepool {
-    NSRunningApplication* f = [[NSWorkspace sharedWorkspace] frontmostApplication];
-    os_front = app_info_from(f);
+  const char* front_source = "cache";
+  uint64_t now_ms = now_epoch_ms();
+
+  // Low-latency fast path: trust the app observer cache when fresh.
+  // Fall back to querying NSWorkspace if cache is stale/empty or explicitly forced.
+  front = current_front_app();
+  uint64_t last_ms = front_app_last_update_ms();
+  bool cache_fresh = !front.name.empty() && now_ms >= last_ms &&
+                     (now_ms - last_ms) <= open_app_front_cache_max_age_ms();
+  if (open_app_force_os_front_query() || !cache_fresh) {
+    @autoreleasepool {
+      NSRunningApplication* f = [[NSWorkspace sharedWorkspace] frontmostApplication];
+      os_front = app_info_from(f);
+    }
+    if (!os_front.name.empty()) {
+      update_front_app(os_front);
+      front = os_front;
+      front_source = "os";
+    }
   }
-  if (!os_front.name.empty()) {
-    update_front_app(os_front);
+  if (front.name.empty() && os_front.name.empty()) {
+    front_source = "none";
   }
-  AppInfo front = os_front;
 
   // Always log toggle inputs in dev; this is the main debugging workflow.
   auto log_diag = [&](std::string_view decision, bool ok) {
@@ -947,7 +991,8 @@ std::string handle_open_app_with_state(const std::string& app, bool toggle) {
     AppInfo prev_dbg = previous_front_app();
     uint64_t now_ms = now_epoch_ms();
     uint64_t last_ms = front_app_last_update_ms();
-    std::string subj;
+    thread_local std::string subj;
+    subj.clear();
     subj.reserve(app.size() + os_front.name.size() + cur_dbg.name.size() + prev_dbg.name.size() + 220);
     subj.append("target=").append(app);
     subj.append("\tos_front=").append(os_front.name);
@@ -955,6 +1000,7 @@ std::string handle_open_app_with_state(const std::string& app, bool toggle) {
     subj.append("\tstate_prev=").append(prev_dbg.name);
     subj.append("\tstate_last_update_ms=").append(std::to_string(last_ms));
     subj.append("\tnow_ms=").append(std::to_string(now_ms));
+    subj.append("\tfront_source=").append(front_source);
     subj.append("\tdecision=");
     subj.append(decision.data(), decision.size());
     subj.append("\tok=");
@@ -984,17 +1030,19 @@ std::string handle_open_app_with_state(const std::string& app, bool toggle) {
         }
       }
     }
-    // If we don't have a previous app (e.g. daemon restarted, or notifications haven't fired),
-    // fall back to the persisted ClickHouse JSONEachRow log which includes app.activate events.
-    std::string prev_name = find_previous_app_in_seqmem(front.name);
-    if (!prev_name.empty() && prev_name != front.name) {
-      AppInfo fallback_prev;
-      fallback_prev.name = std::move(prev_name);
-      actions::Result res = actions::open_app(fallback_prev.name);
-      if (res.ok) {
-        update_front_app(fallback_prev);
-        log_diag("open_prev_from_log", true);
-        return "OK\n";
+    // Optional fallback: scan persisted log for previous app.
+    // Disabled by default for low latency (disk IO + parsing in hot path).
+    if (open_app_allow_seqmem_prev_fallback()) {
+      std::string prev_name = find_previous_app_in_seqmem(front.name);
+      if (!prev_name.empty() && prev_name != front.name) {
+        AppInfo fallback_prev;
+        fallback_prev.name = std::move(prev_name);
+        actions::Result res = actions::open_app(fallback_prev.name);
+        if (res.ok) {
+          update_front_app(fallback_prev);
+          log_diag("open_prev_from_log", true);
+          return "OK\n";
+        }
       }
     }
     actions::Result res = actions::open_app_toggle(app);

@@ -313,18 +313,6 @@
 - name: "open: Spotify (or search)"
   action: open_app_toggle
   arg: "Spotify"
-- name: "Selection -> Claude"
-  action: sequence
-  arg: ""
-  steps:
-    - action: keystroke
-      arg: "cmd+c"
-    - action: open_app
-      arg: "Claude"
-    - action: keystroke
-      arg: "cmd+v"
-    - action: keystroke
-      arg: "return"
 - name: "arc: framer.com"
   action: open_url
   arg: "https://framer.com"

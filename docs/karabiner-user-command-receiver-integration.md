@@ -2,6 +2,9 @@
 
 This guide explains how to test Karabiner `send_user_command` integration on top of seq **without breaking the current `seqSocket(...)` path**.
 
+For the production low-latency always-on setup (launchd + release bridge), use:
+- `docs/karabiner-user-command-absolute-minimum.md`
+
 ## Compatibility goals
 
 1. Keep existing path intact:
@@ -67,9 +70,16 @@ Notes:
 
 - `f kar-uc-build-bridge`
 - `f kar-uc-run-bridge`
+- `f kar-uc-run-bridge-debug`
 - `f kar-uc-send`
 - `f kar-uc-smoke`
 - `f kar-uc-bench`
+- `f kar-uc-launchd-install`
+- `f kar-uc-launchd-restart`
+- `f kar-uc-launchd-status`
+- `f kar-uc-launchd-stop`
+- `f kar-uc-launchd-uninstall`
+- `f kar-uc-launchd-logs`
 
 ## What this setup gives you
 
