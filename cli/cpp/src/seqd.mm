@@ -1531,6 +1531,17 @@ std::string handle_request(const Options& opts, macros::Registry& registry, std:
       actions::Result r = actions::open_with_app(app, file);
       response = r.ok ? "OK\n" : "ERR " + r.error + "\n";
     }
+  } else if (strings::starts_with(view, "OPEN_APP ")) {
+    event_name = "seqd.open_app";
+    std::string_view name_view = trim_prefix(view, "OPEN_APP ");
+    std::string app = strings::trim(name_view);
+    subject = app;
+    if (app.empty()) {
+      response = "ERR empty app\n";
+    } else {
+      trace::event("seqd.open_app", app);
+      response = handle_open_app_with_state(app, false);
+    }
   } else if (strings::starts_with(view, "OPEN_APP_TOGGLE ")) {
     event_name = "seqd.open_app_toggle";
     std::string_view name_view = trim_prefix(view, "OPEN_APP_TOGGLE ");

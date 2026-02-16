@@ -42,6 +42,21 @@ def parse_args() -> argparse.Namespace:
   p.add_argument("--zed-path", default="~/config/fish/fn.fish")
   p.add_argument("--include-process-baseline", action="store_true")
   p.add_argument("--seq-bin", default="/Users/nikiv/code/seq/cli/cpp/out/bin/seq")
+  p.add_argument(
+    "--assume-bridge-direct-open",
+    action="store_true",
+    default=True,
+    help=(
+      "Assume bridge handles OPEN_APP/OPEN_WITH_APP directly (no seqd datagram forwarding), "
+      "so bridge-forward latency rows for those scenarios are skipped."
+    ),
+  )
+  p.add_argument(
+    "--no-assume-bridge-direct-open",
+    dest="assume_bridge_direct_open",
+    action="store_false",
+    help="Force benchmark to expect forwarded datagrams for all scenarios.",
+  )
   p.add_argument("--json-out", default="")
   p.add_argument("--verbose", action="store_true")
   return p.parse_args()
@@ -112,9 +127,10 @@ def bench_direct_dgram(
   warmup: int,
   timeout_s: float,
   line_fn,
-) -> list[float]:
+) -> tuple[list[float], int]:
   sender = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
   values: list[float] = []
+  failed = 0
   try:
     total = iterations + warmup
     for i in range(total):
@@ -122,15 +138,20 @@ def bench_direct_dgram(
       t0 = time.perf_counter_ns()
       sender.sendto(line, str(seq_dgram_sock))
       listener.settimeout(timeout_s)
-      got, _ = listener.recvfrom(4096)
+      try:
+        got, _ = listener.recvfrom(4096)
+      except TimeoutError:
+        failed += 1
+        continue
       t1 = time.perf_counter_ns()
       if got != line:
-        raise RuntimeError(f"direct mismatch at {i}: {got!r}")
+        failed += 1
+        continue
       if i >= warmup:
         values.append((t1 - t0) / 1000.0)
   finally:
     sender.close()
-  return values
+  return values, failed
 
 
 def bench_bridge_dgram(
@@ -141,9 +162,10 @@ def bench_bridge_dgram(
   timeout_s: float,
   payload_fn,
   expected_line_fn,
-) -> list[float]:
+) -> tuple[list[float], int]:
   sender = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
   values: list[float] = []
+  failed = 0
   try:
     total = iterations + warmup
     for i in range(total):
@@ -152,15 +174,20 @@ def bench_bridge_dgram(
       t0 = time.perf_counter_ns()
       sender.sendto(json.dumps(payload, separators=(",", ":")).encode("utf-8"), str(receiver_sock))
       listener.settimeout(timeout_s)
-      got, _ = listener.recvfrom(4096)
+      try:
+        got, _ = listener.recvfrom(4096)
+      except TimeoutError:
+        failed += 1
+        continue
       t1 = time.perf_counter_ns()
       if got != expected:
-        raise RuntimeError(f"bridge mismatch at {i}: {got!r}")
+        failed += 1
+        continue
       if i >= warmup:
         values.append((t1 - t0) / 1000.0)
   finally:
     sender.close()
-  return values
+  return values, failed
 
 
 def bench_process_seq_ping(
@@ -276,7 +303,7 @@ def main() -> int:
       flat_rows: list[dict[str, float | int | str]] = []
 
       for name, direct_fn, payload_fn, expected_fn in scenarios:
-        direct_values = bench_direct_dgram(
+        direct_values, direct_failed = bench_direct_dgram(
           listener=listener,
           seq_dgram_sock=seq_dgram_sock,
           iterations=args.iterations,
@@ -284,22 +311,28 @@ def main() -> int:
           timeout_s=args.timeout_s,
           line_fn=direct_fn,
         )
-        bridge_values = bench_bridge_dgram(
-          listener=listener,
-          receiver_sock=receiver_sock,
-          iterations=args.iterations,
-          warmup=args.warmup,
-          timeout_s=args.timeout_s,
-          payload_fn=payload_fn,
-          expected_line_fn=expected_fn,
-        )
-        direct_row = summarize(f"direct_dgram:{name}", direct_values)
-        bridge_row = summarize(f"bridge_via_user_command:{name}", bridge_values)
+        skip_bridge_forward = args.assume_bridge_direct_open and name in {"open_app_toggle", "open_with_app"}
+        if skip_bridge_forward:
+          bridge_values, bridge_failed = [], args.iterations + args.warmup
+        else:
+          bridge_values, bridge_failed = bench_bridge_dgram(
+            listener=listener,
+            receiver_sock=receiver_sock,
+            iterations=args.iterations,
+            warmup=args.warmup,
+            timeout_s=args.timeout_s,
+            payload_fn=payload_fn,
+            expected_line_fn=expected_fn,
+          )
+        direct_row = summarize(f"direct_dgram:{name}", direct_values, direct_failed)
+        bridge_row = summarize(f"bridge_via_user_command:{name}", bridge_values, bridge_failed)
         flat_rows.extend([direct_row, bridge_row])
         print_summary(direct_row)
         print_summary(bridge_row)
-        ratio = (bridge_row["p95_us"] / direct_row["p95_us"]) if direct_row["p95_us"] else 0.0
+        ratio = (bridge_row["p95_us"] / direct_row["p95_us"]) if direct_row["p95_us"] and bridge_row["count"] else 0.0
         print(f"p95 overhead ratio ({name} bridge/direct): {ratio:.2f}x")
+        if skip_bridge_forward:
+          print(f"note: {name} bridge path handled directly (no seqd dgram forward expected)")
         transport_results.append(
           {
             "scenario": name,

@@ -200,6 +200,11 @@ command = "python3 tools/kar_user_command_e2e_ab.py \"$@\""
 description = "A/B benchmark full software flow: legacy shell path vs send_user_command path."
 
 [[tasks]]
+name = "kar-uc-floor-check"
+command = "python3 tools/kar_user_command_floor_check.py \"$@\""
+description = "Clean-room floor harness: system gate + bridge restart + repeated E2E + transport summary."
+
+[[tasks]]
 name = "kar-uc-system-check"
 command = "sh -lc \"cd $HOME/repos/pqrs-org/Karabiner-Elements-user-command-receiver && make run-system-check\""
 description = "Check system pressure and readiness for clean latency testing (READY/NOT_READY verdict)."

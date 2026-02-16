@@ -18,5 +18,25 @@
     "note": "Source: flow review\nCommit: 7a4f7d93fe0c6a2e9d45bf71fada4a2299b4dc56\nModel: gpt-5.1-codex-max\n\n[P1] Avoid deleting unscanned entries when max-files is hit — /Users/nikiv/code/seq/tools/mac_knowledge.py:551-552",
     "session": null,
     "external_ref": "flow-review-issue-4ce53ec1d653"
+  },
+  {
+    "id": "c882421307434a19bc40d61726b210b6",
+    "title": "[P1] Validate cached PID before returning pid_for_app — /Users/nikiv/code/seq/cli/cpp/src/actions.mm:1630-1637",
+    "status": "pending",
+    "created_at": "2026-02-16T14:36:46.012324+00:00",
+    "updated_at": null,
+    "note": "Source: flow review\nCommit: 436a3265bc9f87a84f0a890aec8c787043d504a8\nModel: gpt-5.1-codex-max\n\n[P1] Validate cached PID before returning pid_for_app — /Users/nikiv/code/seq/cli/cpp/src/actions.mm:1630-1637",
+    "session": null,
+    "external_ref": "flow-review-issue-2cb163ed5a83"
+  },
+  {
+    "id": "1cbd2ef03e8d4539955161baa40a61bf",
+    "title": "[P1] Build bridge from wrong directory in launchd installer — /Users/nikiv/code/seq/tools/kar_uc_launchd.py:79-89",
+    "status": "pending",
+    "created_at": "2026-02-16T14:36:46.012324+00:00",
+    "updated_at": null,
+    "note": "Source: flow review\nCommit: 436a3265bc9f87a84f0a890aec8c787043d504a8\nModel: gpt-5.1-codex-max\n\n[P1] Build bridge from wrong directory in launchd installer — /Users/nikiv/code/seq/tools/kar_uc_launchd.py:79-89",
+    "session": null,
+    "external_ref": "flow-review-issue-13d4cd8fb5e5"
   }
 ]
