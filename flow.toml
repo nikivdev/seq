@@ -4,10 +4,32 @@ name = "seq"
 [flow]
 deploy_task = "deploy"
 
+[release]
+default = "registry"
+versioning = "calver"
+
+[release.registry]
+url = "https://myflow.sh"
+package = "seq"
+bins = ["seq", "seqd"]
+default_bin = "seq"
+token_env = "FLOW_REGISTRY_TOKEN"
+latest = true
+
 [[tasks]]
 name = "build"
 command = "sh ./cli/cpp/run.sh build"
 description = "Build seq CLI/daemon (includes seqmem dylib)"
+
+[[tasks]]
+name = "release-registry-stage"
+command = "sh -lc \"sh ./cli/cpp/run.sh build && mkdir -p target/release && cp ./cli/cpp/out/bin/seq ./cli/cpp/out/bin/seqd target/release/\""
+description = "Build seq/seqd and stage binaries to target/release for registry publishing."
+
+[[tasks]]
+name = "release-registry-publish"
+command = "sh -lc \"f release registry --no-build\""
+description = "Publish staged seq/seqd binaries to myflow registry."
 
 [[tasks]]
 name = "daemon-restart"
@@ -138,6 +160,11 @@ description = "Tail teach.* scraper skill events from seq_mem.jsonl."
 name = "kar-uc-build-bridge"
 command = "sh -lc \"cd $HOME/repos/pqrs-org/Karabiner-Elements-user-command-receiver && make build-bridge-release\""
 description = "Build release seq-user-command-bridge in Karabiner user-command receiver repo."
+
+[[tasks]]
+name = "kar-uc-rebuild-restart"
+command = "sh -lc \"cd $HOME/repos/pqrs-org/Karabiner-Elements-user-command-receiver && make build-bridge-release && cd $HOME/code/seq && python3 tools/kar_uc_launchd.py restart\""
+description = "Always rebuild release bridge and kickstart launchd agent."
 
 [[tasks]]
 name = "kar-uc-run-bridge"

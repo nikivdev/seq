@@ -71,26 +71,6 @@
 - name: "switch between windows of same app (or switch to another app if no more than 1 window)"
   action: switch_window_or_app
   arg: ""
-- name: "X Feed (in Arc)"
-  action: sequence
-  arg: ""
-  steps:
-    - action: open_app
-      arg: "Arc"
-    - action: keystroke
-      arg: "ctrl+1"
-    - action: keystroke
-      arg: "cmd+6"
-- name: "X Messages (in Arc)"
-  action: sequence
-  arg: ""
-  steps:
-    - action: open_app
-      arg: "Arc"
-    - action: keystroke
-      arg: "ctrl+1"
-    - action: keystroke
-      arg: "cmd+8"
 - name: "open Safari new tab"
   action: open_url
   arg: "about:blank"
@@ -221,10 +201,6 @@
   action: open_url
   arg: "https://elk.zone"
   app: "Arc"
-- name: "arc: n8n.io"
-  action: open_url
-  arg: "https://n8n.io"
-  app: "Arc"
 - name: "arc: qwen"
   action: open_url
   arg: "https://chat.qwen.ai"
@@ -281,9 +257,6 @@
   action: open_url
   arg: "https://rutracker.org"
   app: "Arc"
-- name: "paste: €"
-  action: paste_text
-  arg: "€"
 - name: "arc: console.neon.tech"
   action: open_url
   arg: "https://console.neon.tech"
@@ -426,62 +399,14 @@
   action: open_url
   arg: "https://console.cloud.google.com"
   app: "Arc"
-- name: "paste: personal nikita@ email"
-  action: paste_text
-  arg: "personal nikita@ email"
-- name: "paste: personal nikita.vo@ email"
-  action: paste_text
-  arg: "personal nikita.vo@ email"
-- name: "enter: explain"
-  action: sequence
-  arg: ""
-  steps:
-    - action: paste_text
-      arg: "explain"
-    - action: keystroke
-      arg: "return"
-- name: "paste: Cal.com (15 min)"
-  action: paste_text
-  arg: "Cal.com (15 min)"
-- name: "enter: what to run next?"
-  action: sequence
-  arg: ""
-  steps:
-    - action: paste_text
-      arg: "what to run next?"
-    - action: keystroke
-      arg: "return"
-- name: "paste: what flow.toml task to run "
-  action: paste_text
-  arg: "what flow.toml task to run"
-- name: "paste: create flow.toml task "
-  action: paste_text
-  arg: "create flow.toml task"
 - name: "arc: dashboard.electric-sql.cloud"
   action: open_url
   arg: "https://dashboard.electric-sql.cloud"
   app: "Arc"
-- name: "paste: need hive agent "
-  action: paste_text
-  arg: "need hive agent"
-- name: "paste: todo: better"
-  action: paste_text
-  arg: "todo: better"
-- name: "paste: todo: "
-  action: paste_text
-  arg: "todo:"
 - name: "arc: reddit.com (upvotes)"
   action: open_url
   arg: "https://reddit.com"
   app: "Arc"
-- name: "enter: write docs/how-it-works.md"
-  action: sequence
-  arg: ""
-  steps:
-    - action: paste_text
-      arg: "write docs/how-it-works.md"
-    - action: keystroke
-      arg: "return"
 - name: "arc: x.com (bookmarks)"
   action: open_url
   arg: "https://x.com"
@@ -490,16 +415,9 @@
   action: open_url
   arg: "https://x.com"
   app: "Arc"
-- name: "paste: create cmd in flow where "
-  action: paste_text
-  arg: "create cmd in flow where"
 - name: "arc: gmail.com"
   action: open_url
   arg: "https://gmail.com"
-  app: "Arc"
-- name: "arc: drive.google.com"
-  action: open_url
-  arg: "https://drive.google.com"
   app: "Arc"
 - name: "arc: v0.app"
   action: open_url
@@ -555,30 +473,9 @@
       arg: "cmd+k"
     - action: paste_text
       arg: "team gen"
-- name: "web: GitHub (personal)"
-  action: open_url
-  arg: "https://github.com/nikivdev"
-  app: "Safari"
-- name: "arc: grokipedia.com"
-  action: open_url
-  arg: "https://grokipedia.com"
-  app: "Arc"
-- name: "arc: news.ycombinator/new-comments"
-  action: open_url
-  arg: "https://news.ycombinator/new-comments"
-  app: "Arc"
 - name: "telegram: saved"
   action: open_url
   arg: "tg://resolve?domain=nikivi"
-- name: "arc: aistudio.google.com (3)"
-  action: open_url
-  arg: "https://aistudio.google.com"
-  app: "Arc"
-- name: "arc: colab.research.google.com"
-  action: open_url
-  arg: "https://colab.research.google.com"
-  app: "Arc"
-- name: "arc: aistudio.google.com (2)"
-  action: open_url
-  arg: "https://aistudio.google.com"
-  app: "Arc"
+- name: "X Messages (in Arc)"
+  action: todo
+  arg: ""

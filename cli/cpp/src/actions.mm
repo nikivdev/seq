@@ -1,6 +1,7 @@
 #include "actions.h"
 
 #include "process.h"
+#include "seqd.h"
 #include "trace.h"
 #include "strings.h"
 
@@ -62,6 +63,10 @@ constexpr int bit_width(T x) {
 #import <ApplicationServices/ApplicationServices.h>
 #import <Carbon/Carbon.h>
 #import <Cocoa/Cocoa.h>
+
+#ifndef kAXWindowNumberAttribute
+#define kAXWindowNumberAttribute CFSTR("AXWindowNumber")
+#endif
 
 namespace actions {
 namespace {
@@ -1113,6 +1118,279 @@ std::string running_apps_json() {
 }
 
 namespace {
+struct LastTwoWindowState {
+  int64_t first = 0;
+  int64_t second = 0;
+  int64_t last_seen = 0;
+};
+
+struct FastAxToggleResult {
+  bool attempted = false;
+  bool toggled = false;
+  CFIndex window_count = 0;
+};
+
+std::mutex& last_two_window_state_mutex() {
+  static std::mutex m;
+  return m;
+}
+
+std::unordered_map<pid_t, LastTwoWindowState>& last_two_window_state_by_pid() {
+  static std::unordered_map<pid_t, LastTwoWindowState> m;
+  return m;
+}
+
+int64_t ax_window_id(AXUIElementRef win) {
+  if (!win) {
+    return 0;
+  }
+  CFTypeRef id_any = nullptr;
+  AXError err = AXUIElementCopyAttributeValue(win, kAXWindowNumberAttribute, &id_any);
+  if (err != kAXErrorSuccess || !id_any || CFGetTypeID(id_any) != CFNumberGetTypeID()) {
+    if (id_any) {
+      CFRelease(id_any);
+    }
+    return 0;
+  }
+  int64_t out = 0;
+  (void)CFNumberGetValue((CFNumberRef)id_any, kCFNumberSInt64Type, &out);
+  CFRelease(id_any);
+  return out;
+}
+
+bool activate_ax_window(AXUIElementRef app_el, AXUIElementRef win) {
+  if (!app_el || !win) {
+    return false;
+  }
+  AXError focus_err = AXUIElementSetAttributeValue(app_el, kAXFocusedWindowAttribute, win);
+  AXError main_err = AXUIElementSetAttributeValue(app_el, kAXMainWindowAttribute, win);
+  AXError raise_err = AXUIElementPerformAction(win, kAXRaiseAction);
+  return focus_err == kAXErrorSuccess || main_err == kAXErrorSuccess || raise_err == kAXErrorSuccess;
+}
+
+void remember_current_window(pid_t pid, int64_t current_id) {
+  if (pid <= 0 || current_id <= 0) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(last_two_window_state_mutex());
+  auto& state = last_two_window_state_by_pid()[pid];
+  state.last_seen = current_id;
+  if (state.first == 0) {
+    state.first = current_id;
+  }
+}
+
+int64_t choose_toggle_target(pid_t pid, int64_t current_id, const std::vector<int64_t>& window_ids) {
+  if (current_id <= 0) {
+    return 0;
+  }
+
+  auto has_id = [&](int64_t id) -> bool {
+    if (id <= 0) return false;
+    for (auto wid : window_ids) {
+      if (wid == id) return true;
+    }
+    return false;
+  };
+
+  std::lock_guard<std::mutex> lock(last_two_window_state_mutex());
+  auto& state = last_two_window_state_by_pid()[pid];
+
+  if (state.first == current_id && has_id(state.second)) {
+    return state.second;
+  }
+  if (state.second == current_id && has_id(state.first)) {
+    return state.first;
+  }
+  if (state.last_seen != 0 && state.last_seen != current_id && has_id(state.last_seen)) {
+    return state.last_seen;
+  }
+
+  for (auto wid : window_ids) {
+    if (wid != current_id) {
+      return wid;
+    }
+  }
+  return 0;
+}
+
+void remember_toggle_pair(pid_t pid, int64_t current_id, int64_t target_id) {
+  if (pid <= 0 || target_id <= 0) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(last_two_window_state_mutex());
+  auto& state = last_two_window_state_by_pid()[pid];
+  state.first = current_id;
+  state.second = target_id;
+  state.last_seen = target_id;
+}
+
+FastAxToggleResult try_toggle_last_two_windows_ax(pid_t pid) {
+  FastAxToggleResult out;
+  if (pid <= 0) {
+    return out;
+  }
+
+  AXUIElementRef app_el = AXUIElementCreateApplication(pid);
+  if (!app_el) {
+    return out;
+  }
+  out.attempted = true;
+
+  CFTypeRef windows_any = nullptr;
+  AXError windows_err = AXUIElementCopyAttributeValue(app_el, kAXWindowsAttribute, &windows_any);
+  if (windows_err != kAXErrorSuccess || !windows_any || CFGetTypeID(windows_any) != CFArrayGetTypeID()) {
+    if (windows_any) {
+      CFRelease(windows_any);
+    }
+    CFRelease(app_el);
+    return out;
+  }
+
+  CFArrayRef windows = static_cast<CFArrayRef>(windows_any);
+  out.window_count = CFArrayGetCount(windows);
+  if (out.window_count < 2) {
+    CFRelease(windows_any);
+    CFRelease(app_el);
+    return out;
+  }
+
+  std::vector<AXUIElementRef> ax_windows;
+  std::vector<int64_t> ax_window_ids;
+  ax_windows.reserve((size_t)out.window_count);
+  ax_window_ids.reserve((size_t)out.window_count);
+  for (CFIndex i = 0; i < out.window_count; ++i) {
+    AXUIElementRef win = (AXUIElementRef)CFArrayGetValueAtIndex(windows, i);
+    if (!win) {
+      continue;
+    }
+    int64_t wid = ax_window_id(win);
+    if (wid > 0) {
+      ax_windows.push_back(win);
+      ax_window_ids.push_back(wid);
+    }
+  }
+
+  if (ax_window_ids.size() < 2) {
+    CFRelease(windows_any);
+    CFRelease(app_el);
+    return out;
+  }
+
+  int64_t current_id = 0;
+  CFTypeRef focused_any = nullptr;
+  AXError focused_err = AXUIElementCopyAttributeValue(app_el, kAXFocusedWindowAttribute, &focused_any);
+  if (focused_err == kAXErrorSuccess && focused_any && CFGetTypeID(focused_any) == AXUIElementGetTypeID()) {
+    current_id = ax_window_id((AXUIElementRef)focused_any);
+  }
+  if (focused_any) {
+    CFRelease(focused_any);
+  }
+
+  remember_current_window(pid, current_id);
+  int64_t target_id = choose_toggle_target(pid, current_id, ax_window_ids);
+  if (target_id > 0 && target_id != current_id) {
+    for (size_t i = 0; i < ax_window_ids.size(); ++i) {
+      if (ax_window_ids[i] != target_id) {
+        continue;
+      }
+      if (activate_ax_window(app_el, ax_windows[i])) {
+        remember_toggle_pair(pid, current_id, target_id);
+        trace::event("switch_window_or_app.toggle_current_id", std::to_string(current_id));
+        trace::event("switch_window_or_app.toggle_target_id", std::to_string(target_id));
+        trace::event("switch_window_or_app.result", "toggle_last_two_ax");
+        out.toggled = true;
+      }
+      break;
+    }
+  }
+
+  CFRelease(windows_any);
+  CFRelease(app_el);
+  return out;
+}
+
+bool activate_previous_app_from_window_list(pid_t current_pid) {
+  // Fast path: when running inside seqd, use daemon-tracked previous front app.
+  // This avoids Cmd+Tab UI and works even when CG window heuristics are ambiguous.
+  if (seqd::activate_previous_front_app_fast()) {
+    trace::event("switch_window_or_app.prev_app_activated", "source=seqd_state");
+    return true;
+  }
+
+  @autoreleasepool {
+    CFArrayRef windows_ref = CGWindowListCopyWindowInfo(
+        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID);
+    if (!windows_ref) {
+      trace::event("switch_window_or_app.prev_app_err", "no_window_list");
+      return false;
+    }
+
+    bool activated = false;
+    CFIndex total = CFArrayGetCount(windows_ref);
+    for (CFIndex i = 0; i < total; ++i) {
+      CFDictionaryRef dict = static_cast<CFDictionaryRef>(CFArrayGetValueAtIndex(windows_ref, i));
+      if (!dict) continue;
+
+      CFNumberRef owner_pid_ref = static_cast<CFNumberRef>(CFDictionaryGetValue(dict, kCGWindowOwnerPID));
+      if (!owner_pid_ref) continue;
+      int owner_pid = 0;
+      if (!CFNumberGetValue(owner_pid_ref, kCFNumberIntType, &owner_pid)) continue;
+      if (owner_pid <= 0 || owner_pid == current_pid) continue;
+
+      CFNumberRef layer_ref = static_cast<CFNumberRef>(CFDictionaryGetValue(dict, kCGWindowLayer));
+      int layer = 0;
+      if (layer_ref && CFNumberGetValue(layer_ref, kCFNumberIntType, &layer) && layer != 0) {
+        continue;
+      }
+
+      CFNumberRef alpha_ref = static_cast<CFNumberRef>(CFDictionaryGetValue(dict, kCGWindowAlpha));
+      double alpha = 1.0;
+      if (alpha_ref) {
+        (void)CFNumberGetValue(alpha_ref, kCFNumberDoubleType, &alpha);
+      }
+      if (alpha <= 0.01) continue;
+
+      CFDictionaryRef bounds_ref = static_cast<CFDictionaryRef>(CFDictionaryGetValue(dict, kCGWindowBounds));
+      CGRect bounds{};
+      if (bounds_ref && CGRectMakeWithDictionaryRepresentation(bounds_ref, &bounds)) {
+        if (bounds.size.width < 80.0 || bounds.size.height < 80.0) {
+          continue;
+        }
+      }
+
+      NSRunningApplication* app =
+          [NSRunningApplication runningApplicationWithProcessIdentifier:owner_pid];
+      if (!app || app.terminated) {
+        continue;
+      }
+      if ([app activationPolicy] != NSApplicationActivationPolicyRegular) {
+        continue;
+      }
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+      NSApplicationActivationOptions opts =
+          (NSApplicationActivationOptions)(NSApplicationActivateAllWindows |
+                                           NSApplicationActivateIgnoringOtherApps);
+#pragma clang diagnostic pop
+      bool ok = [app activateWithOptions:opts];
+      if (ok) {
+        std::string detail = "pid=" + std::to_string(owner_pid);
+        if (app.localizedName) {
+          detail.append("\tname=").append([app.localizedName UTF8String]);
+        }
+        trace::event("switch_window_or_app.prev_app_activated", detail);
+        activated = true;
+        break;
+      }
+    }
+
+    CFRelease(windows_ref);
+    return activated;
+  }
+}
+
 Result switch_window_or_app_impl() {
   @autoreleasepool {
     NSRunningApplication* front = [[NSWorkspace sharedWorkspace] frontmostApplication];
@@ -1124,14 +1402,30 @@ Result switch_window_or_app_impl() {
     }
     pid_t pid = front.processIdentifier;
 
-    // Prefer AX for counting user-facing windows: CGWindowList can overcount for some apps
+    // Prefer a fast AX toggle path first (focused window + window IDs only).
+    // This avoids the heavier per-window AX attribute scan that can add ~1s latency.
+    FastAxToggleResult ax_fast;
+    if (AXIsProcessTrusted()) {
+      ax_fast = try_toggle_last_two_windows_ax(pid);
+      if (ax_fast.toggled) {
+        return {true, ""};
+      }
+    }
+
+    // Prefer AX/CG counting for deciding whether to cycle windows vs switch app.
     // (multiple backing surfaces), causing false "cycle window" decisions.
     //
     // If AX isn't trusted or fails, fall back to CGWindowList with heuristics.
     CFIndex count = 0;
     bool have_count = false;
+    if (ax_fast.attempted && ax_fast.window_count > 0) {
+      count = ax_fast.window_count;
+      have_count = true;
+      trace::event("switch_window_or_app.window_count_ax_fast", std::to_string(count));
+    }
 
-    if (AXIsProcessTrusted()) {
+    bool ax_toggle_done = false;
+    if (AXIsProcessTrusted() && !have_count) {
       AXUIElementRef app_el = AXUIElementCreateApplication(pid);
       if (app_el) {
         CFTypeRef windows_any = nullptr;
@@ -1141,6 +1435,10 @@ Result switch_window_or_app_impl() {
           CFIndex total = CFArrayGetCount(windows);
           CFIndex titled = 0;
           CFIndex untitled = 0;
+          std::vector<AXUIElementRef> ax_windows;
+          std::vector<int64_t> ax_window_ids;
+          ax_windows.reserve((size_t)total);
+          ax_window_ids.reserve((size_t)total);
           for (CFIndex i = 0; i < total; ++i) {
             AXUIElementRef win = (AXUIElementRef)CFArrayGetValueAtIndex(windows, i);
             if (!win) {
@@ -1211,13 +1509,52 @@ Result switch_window_or_app_impl() {
             } else {
               ++untitled;
             }
+            int64_t wid = ax_window_id(win);
+            if (wid > 0) {
+              ax_windows.push_back(win);
+              ax_window_ids.push_back(wid);
+            }
           }
           trace::event("switch_window_or_app.window_count_ax_titled", std::to_string(titled));
           trace::event("switch_window_or_app.window_count_ax_untitled", std::to_string(untitled));
-          CFIndex ax_count = (titled > 0) ? titled : (titled + untitled);
+          // Use titled-only count only when we clearly have multiple titled windows.
+          // Some apps expose only one titled window but many untitled real windows.
+          CFIndex ax_count = (titled >= 2) ? titled : (titled + untitled);
           trace::event("switch_window_or_app.window_count_ax", std::to_string(ax_count));
           count = ax_count;
           have_count = true;
+
+          if (ax_count >= 2 && !ax_windows.empty() && ax_windows.size() == ax_window_ids.size()) {
+            int64_t current_id = 0;
+            CFTypeRef focused_any = nullptr;
+            AXError focused_err =
+                AXUIElementCopyAttributeValue(app_el, kAXFocusedWindowAttribute, &focused_any);
+            if (focused_err == kAXErrorSuccess && focused_any &&
+                CFGetTypeID(focused_any) == AXUIElementGetTypeID()) {
+              current_id = ax_window_id((AXUIElementRef)focused_any);
+            }
+            if (focused_any) {
+              CFRelease(focused_any);
+            }
+
+            remember_current_window(pid, current_id);
+            int64_t target_id = choose_toggle_target(pid, current_id, ax_window_ids);
+            if (target_id > 0 && target_id != current_id) {
+              for (size_t i = 0; i < ax_window_ids.size(); ++i) {
+                if (ax_window_ids[i] != target_id) {
+                  continue;
+                }
+                if (activate_ax_window(app_el, ax_windows[i])) {
+                  remember_toggle_pair(pid, current_id, target_id);
+                  trace::event("switch_window_or_app.toggle_current_id", std::to_string(current_id));
+                  trace::event("switch_window_or_app.toggle_target_id", std::to_string(target_id));
+                  trace::event("switch_window_or_app.result", "toggle_last_two_ax");
+                  ax_toggle_done = true;
+                }
+                break;
+              }
+            }
+          }
         } else {
           trace::event("switch_window_or_app.ax_windows_err", std::to_string((int)err));
         }
@@ -1230,6 +1567,10 @@ Result switch_window_or_app_impl() {
       trace::event("switch_window_or_app.ax_trusted", "0");
     }
 
+    if (ax_toggle_done) {
+      return {true, ""};
+    }
+
     if (!have_count) {
       // CG fallback: count sizable visible layer-0 windows for the front pid.
       // If any windows are named, use only named windows to avoid backing-surface overcount.
@@ -1237,7 +1578,12 @@ Result switch_window_or_app_impl() {
           kCGWindowListOptionAll | kCGWindowListExcludeDesktopElements, kCGNullWindowID);
       if (!windows_ref) {
         trace::event("switch_window_or_app.cg_windows_err", "no window list");
-        post_cmd_key((CGKeyCode)kVK_Tab);
+        if (activate_previous_app_from_window_list(pid)) {
+          trace::event("switch_window_or_app.result", "activate_previous_app_no_window_list");
+        } else {
+          trace::event("switch_window_or_app.result", "cmd_tab_no_window_list");
+          post_cmd_key((CGKeyCode)kVK_Tab);
+        }
         return {true, ""};
       }
 
@@ -1297,21 +1643,26 @@ Result switch_window_or_app_impl() {
       CFRelease(windows_ref);
       trace::event("switch_window_or_app.window_count_cg_named", std::to_string(named));
       trace::event("switch_window_or_app.window_count_cg_unnamed", std::to_string(unnamed));
-      count = (named > 0) ? named : (named + unnamed);
+      // Same heuristic as AX path: require at least 2 named windows before
+      // trusting named-only counting.
+      count = (named >= 2) ? named : (named + unnamed);
     }
 
     trace::event("switch_window_or_app.window_count", std::to_string(count));
 
     if (count >= 2) {
-      trace::event("switch_window_or_app.result", "cycle_cmd_grave");
-      // Post to the front app pid: this behaves more reliably than global posting under
-      // some hotkey helpers / TCC setups, and still triggers the standard macOS window cycle.
-      post_key((CGKeyCode)kVK_ANSI_Grave, kCGEventFlagMaskCommand, pid);
+      trace::event("switch_window_or_app.result", "cycle_cmd_grave_global");
+      // Reliability fallback: global Cmd+` works across more apps/toolkits than pid-targeted post.
+      post_cmd_key((CGKeyCode)kVK_ANSI_Grave);
       return {true, ""};
     }
 
-    trace::event("switch_window_or_app.result", "cmd_tab");
-    post_cmd_key((CGKeyCode)kVK_Tab);
+    if (activate_previous_app_from_window_list(pid)) {
+      trace::event("switch_window_or_app.result", "activate_previous_app");
+    } else {
+      trace::event("switch_window_or_app.result", "cmd_tab");
+      post_cmd_key((CGKeyCode)kVK_Tab);
+    }
     return {true, ""};
   }
 }

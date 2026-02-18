@@ -1,153 +1,216 @@
-# Seq Action-Pack Execution For Zed Restore Recipes
+# Seq Executable Markdown Recipes Via Action-Pack
 
-This document explains exactly how `seq` executes a markdown recipe like:
+This is the canonical reference for executable markdown recipes in `seq`.
 
-- `/Users/nikiv/code/org/la/la/.ai/recipes/manual/restore-zvec-claude-zed.md`
+Scope:
+- markdown recipes that contain a ` ```action-pack ` fenced block
+- how those blocks are compiled/signed/sent/executed
+- strict and permissive templates for real workflows (Zed + Claude/Codex resume)
 
-It also includes performance and hardening guidance for production usage.
+## What Is Executable
 
-## The recipe input
+Only the extracted `action-pack` block is executable.
 
-The markdown recipe contains an `action-pack` fenced block:
+`seq` does not parse markdown directly. A caller extracts the block to a plain script file, then runs one of:
+- `seq action-pack run --to <receiver|ip:port> <script.ap> ...`
+- `seq action-pack pack <script.ap> --out <pack.sap> ...` then `seq action-pack send ...`
+
+## Canonical Markdown Shape
+
+Recommended recipe shape is one explicit block:
+
+````markdown
+# Restore workspace
+
+Some human notes here.
+
+```action-pack
+timeout 0
+cd /Users/nikiv/repos/alibaba/zvec
+exec /Users/nikiv/.flow/bin/f ai codex continue
+```
+````
+
+Caller-side extraction example (first action-pack block):
+
+```bash
+awk '
+  /^```action-pack[[:space:]]*$/ { in_block=1; next }
+  /^```[[:space:]]*$/ && in_block { exit }
+  in_block { print }
+' /path/to/recipe.md > /tmp/recipe.ap
+```
+
+## Script Grammar (From `compile_script`)
+
+Supported instructions:
+- `cd <path>`
+- `timeout <ms>`
+- `env KEY=VALUE`
+- `put <dest_abs_path> @<src_path>`
+- `exec <argv...>`
+
+Parsing behavior:
+- blank lines and `# comment` lines are ignored
+- quotes are token delimiters (`'` and `"`)
+- backslash escapes the next character
+- no shell evaluation in script lines
+
+Important constraints:
+- script must produce at least one step (`script has no steps` otherwise)
+- `put` destination must be absolute
+- total embedded `put` bytes max is 8 MiB
+- `timeout` is parsed as integer ms (`uint32`)
+
+## End-to-End Path
+
+1. Sender compiles script to `Pack` (`action_pack::compile_script`).
+2. Sender encodes payload (`APK1`), signs with P-256 key, wraps into `SAP1` envelope.
+3. Sender sends envelope bytes over TCP to receiver.
+4. Receiver verifies signature and TTL/replay constraints.
+5. Receiver executes steps with root/policy/env guards.
+6. Sender prints textual response (`OK ...`, `STEP ...`, stdout/stderr).
+
+## Sender Commands
+
+One-shot path:
+
+```bash
+seq action-pack run \
+  --to testmac \
+  /tmp/recipe.ap \
+  --id default \
+  --ttl-ms 600000
+```
+
+Two-step reusable path:
+
+```bash
+seq action-pack pack /tmp/recipe.ap --out /tmp/recipe.sap --id default --ttl-ms 600000
+seq action-pack send --to testmac /tmp/recipe.sap
+```
+
+Pair/register helpers:
+
+```bash
+seq action-pack pair testmac testmac:5011 --id default
+seq action-pack receivers
+```
+
+## Receiver Setup
+
+Fast path:
+
+```bash
+cd ~/code/seq
+tools/action_pack_receiver_enable.sh \
+  --listen 0.0.0.0:5011 \
+  --trust default "$(seq action-pack export-pub --id default)" \
+  --root /Users/nikiv
+```
+
+This writes:
+- `~/Library/Application Support/seq/action_pack_receiver.conf`
+- `~/Library/Application Support/seq/action_pack_pubkeys`
+- `~/Library/Application Support/seq/action_pack.policy`
+
+Receiver-side daemon must run with action-pack enabled (or load `action_pack_receiver.conf`).
+Receiver refuses to run action-pack server without `--action-pack-root`.
+
+## Policy Model
+
+If a policy file is configured, receiver enters strict per-key mode:
+- missing `key_id` in policy => `ERR policy missing for key_id`
+- only listed `cmd=` absolute commands are executable (unless `allow_root_scripts=1`)
+- only listed `env=` keys survive filtering
+- executable writes are blocked unless `allow_exec_writes=1`
+
+Policy line format:
+
+```text
+<key_id> cmd=/usr/bin/git cmd=/bin/bash env=HOME allow_root_scripts=0 allow_exec_writes=0
+```
+
+Without policy file, built-in allowlist is used (small default set in `action_pack_server.cpp`).
+
+## Command Resolution Details
+
+Receiver resolves short command names through a fixed map before policy checks:
+- `git`, `make`, `pwd`, `echo`, `ls`, `rm`, `mkdir`
+- `bash`, `zsh`, `python3`, `xcodebuild`, `clang`, `clang++`
+
+If `argv[0]`:
+- is absolute (`/usr/bin/git`): used directly
+- has `/` but is relative (`./tools/x`): resolved under `cwd` and must stay under root
+- is short and not in map (`f`): rejected (`cmd_not_allowed`)
+
+So `exec f ai codex continue` is usually rejected on strict receivers.
+
+## Variables and Paths
+
+Receiver performs minimal expansion on `cwd`, command args, and write paths:
+- leading `~/`
+- `$HOME`
+- `${HOME}`
+
+CWD and relative command resolution must stay under `--action-pack-root`.
+
+## Zed + Session Restore Recipe Patterns
+
+Strict pattern (prefer for production, explicit command allowlist):
 
 ```action-pack
 timeout 0
 exec /usr/bin/open -a Zed /Users/nikiv/repos/alibaba/zvec
 cd /Users/nikiv/repos/alibaba/zvec
-exec f ai claude resume 32e0aaad-203c-4980-bdb9-5a9a1a7ce878
+exec /Users/nikiv/.flow/bin/f ai codex continue
 ```
 
-`seq` itself does not parse markdown. A caller (for example `la-py recipe build`) extracts that block and writes a plain script file, then calls `seq action-pack pack ...`.
-
-## End-to-end execution path
-
-1. Compile script into signed pack (`.sap`):
-   - `seq action-pack pack <script> --out <pack.sap> --id <key_id> [--ttl-ms <n>]`
-2. Send pack to receiver:
-   - `seq action-pack send --to <receiver|ip:port> <pack.sap>`
-3. Receiver `seqd` validates and executes steps.
-4. Client prints receiver response (`OK ...`, per-step status, stdout/stderr).
-
-## What `pack` does internally
-
-In `cli/cpp/src/action_pack_cli.cpp`, `pack` does:
-
-1. Read script file.
-2. Compile script text into `Pack` using `action_pack::compile_script(...)`.
-3. Encode payload (`APK1` envelope payload version 2).
-4. Sign payload with P-256 private key (`action_pack_crypto::sign_p256`).
-5. Encode envelope (`payload + signature`) and write `.sap`.
-
-`compile_script` supports these ops:
-
-- `cd <path>`: updates cwd for subsequent exec steps.
-- `timeout <ms>`: updates timeout for subsequent exec steps.
-- `env KEY=VALUE`: stores env var in pack env map.
-- `put <abs-dest> @<local-src>`: embeds file bytes into pack.
-- `exec <argv...>`: creates one executable step.
-
-Important defaults:
-
-- `seq action-pack` default TTL is `5m` if not provided by caller.
-- If upstream caller passes TTL (like la recipe flow), that value is used.
-
-## What `send` does internally
-
-In `cli/cpp/src/action_pack_cli.cpp`, `send` does:
-
-1. Resolve receiver name via:
-   - `~/Library/Application Support/seq/action_pack_receivers`
-2. Resolve `host:port` and open TCP connection.
-3. Write raw envelope bytes.
-4. Read textual response from receiver and print it.
-
-## What receiver `seqd` does
-
-In `cli/cpp/src/action_pack_server.cpp`, for each request:
-
-1. Peer filter:
-   - local and/or tailscale ranges depending on flags.
-2. Decode envelope and payload.
-3. Lookup `key_id` pubkey, verify signature.
-4. Enforce time window:
-   - reject future `created_ms` and expired packs (with skew allowance).
-5. Replay protection:
-   - track `pack_id` in seen store; reject repeats before expiry.
-6. Execute steps with sandbox and policy checks:
-   - root restriction (`--action-pack-root`) required.
-   - command allowlist/policy enforced.
-   - env filtering (`DYLD_*`, `LD_*` denied).
-   - writes use safe atomic write path.
-   - per-step output captured with max output cap.
-
-## Why the current sample recipe can fail on strict receivers
-
-With default policy behavior:
-
-- `exec /usr/bin/open ...` can be rejected unless `/usr/bin/open` is allowed by policy.
-- `exec f ai claude ...` can be rejected because `f` is a short command not in resolver allowlist.
-
-So the recipe is readable, but strict receiver policy may block it unless adjusted.
-
-## Optimized recipe shape (recommended)
-
-For this Zed restore scenario, prefer a single exec step via `/bin/bash`:
+Permissive pattern (fewer steps, easier to allow, broader shell power):
 
 ```action-pack
 timeout 0
-exec /bin/bash -lc "/usr/bin/open -a Zed /Users/nikiv/repos/alibaba/zvec && cd /Users/nikiv/repos/alibaba/zvec && f ai claude resume 32e0aaad-203c-4980-bdb9-5a9a1a7ce878"
+exec /bin/bash -lc "/usr/bin/open -a Zed /Users/nikiv/repos/alibaba/zvec && cd /Users/nikiv/repos/alibaba/zvec && /Users/nikiv/.flow/bin/f ai codex continue"
 ```
-
-Why this is better:
-
-- One exec step instead of two exec steps.
-- Uses `/bin/bash` (commonly allowlisted in current receiver defaults).
-- Fewer server-side step transitions and less response payload.
 
 Tradeoff:
+- strict: safer, more policy maintenance
+- bash wrapper: simpler packaging, less strict security boundary
 
-- Shell startup adds small overhead.
-- Policy is less strict if `/bin/bash` remains allowlisted.
+## Build-Now Checklist
 
-## Performance guidance (zvec-style mindset)
+1. Build/deploy seq CLI on sender and receiver.
+2. Generate/export sender pubkey (`seq action-pack keygen --id ...`).
+3. Configure receiver trust + root + policy.
+4. Extract `action-pack` block from markdown into `.ap`.
+5. Run with `seq action-pack run --to ...`.
+6. Verify response has:
+   - `OK pack_id=... steps=...`
+   - `STEP ... exec exit=0 ...` for each step
 
-zvec wins from batching and data-local execution. Apply the same principles here:
+## Troubleshooting Quick Map
 
-1. Batch, do not recompile every run:
-   - Build `.sap` once.
-   - Reuse `send` many times.
-2. Reduce per-pack step count:
-   - Fuse setup into one exec for latency-sensitive restores.
-3. Keep payloads lean:
-   - avoid `put` for large files unless needed.
-4. Use fixed receiver aliases:
-   - avoid avoidable DNS/lookup overhead in hot loops.
-5. Tune receiver limits for throughput tests:
-   - `--action-pack-max-conns`
-   - `--action-pack-io-timeout-ms`
-   - max request/output limits
+- `ERR unknown instruction: X`
+  - typo in script op
+- `ERR script has no steps`
+  - no `exec`/`put` after extraction
+- `STEP ... ERR cmd_not_allowed`
+  - command not in policy/allowlist, or short name not resolvable
+- `STEP ... ERR cwd_outside_root` / `cmd_outside_root`
+  - command/cwd escapes `--action-pack-root`
+- `ERR policy missing for key_id`
+  - add key line to policy file
+- `ERR pack expired`
+  - increase `--ttl-ms` or fix clock skew
+- `ERR replay`
+  - pack reused before expiry; repack to get new `pack_id`
+- `ERR signature invalid`
+  - sender key mismatch with receiver pubkey entry
 
-## Hardening for production
+## Performance Notes
 
-For high-trust production receivers:
-
-1. Remove `/bin/bash` from policy allowlist.
-2. Add only exact absolute commands needed.
-3. Use key-specific policy files per sender.
-4. Keep `--action-pack-root` narrow (repo subtree, not home root).
-5. Keep TTL short for one-shot automation.
-
-## Practical test loop
-
-From sender side:
-
-```bash
-seq action-pack pack /tmp/restore-zvec.action-pack.txt --out /tmp/restore-zvec.sap --id default --ttl-ms 600000
-seq action-pack send --to testmac /tmp/restore-zvec.sap
-```
-
-Receiver should return:
-
-- one `OK pack_id=... steps=...`
-- per-step status lines (`STEP ... exec exit=... dur_ms=...`)
-
+For high-throughput loops:
+- use `pack` once + repeated `send` when script is stable
+- reduce step count
+- avoid large embedded `put` payloads
+- tune receiver `--action-pack-max-conns`, `--action-pack-io-timeout-ms`, output/request caps

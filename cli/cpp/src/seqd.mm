@@ -1753,6 +1753,32 @@ int run_server(const Options& opts, macros::Registry& registry) {
 }
 }  // namespace
 
+bool activate_previous_front_app_fast() {
+  AppInfo front = current_front_app();
+  AppInfo prev = previous_front_app();
+  if (prev.name.empty()) {
+    return false;
+  }
+  if (front.pid != 0 && prev.pid != 0 && front.pid == prev.pid) {
+    return false;
+  }
+  if (!front.name.empty() && prev.name == front.name) {
+    return false;
+  }
+
+  if (activate_app_fast(prev)) {
+    update_front_app(prev);
+    return true;
+  }
+
+  actions::Result res = actions::open_app(prev.name);
+  if (res.ok) {
+    update_front_app(prev);
+    return true;
+  }
+  return false;
+}
+
 int run_daemon(const Options& opts) {
   signal(SIGPIPE, SIG_IGN);
 
