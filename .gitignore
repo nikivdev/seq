@@ -19,6 +19,8 @@
 out/
 cli/cpp/out/
 cli/swift/**/out/
+api/rust/**/target/
+api/rust/**/Cargo.lock
 
 # optional local macros overlay (loaded automatically by seqd/cli if present)
 seq.macros.local.yaml

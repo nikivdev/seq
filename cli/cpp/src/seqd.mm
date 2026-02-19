@@ -1127,6 +1127,319 @@ bool reload_macros_registry(const Options& opts, macros::Registry* registry, std
   return true;
 }
 
+struct RpcDispatchResult {
+  bool ok = false;
+  std::string op;
+  std::string request_id;
+  std::string run_id;
+  std::string tool_call_id;
+  std::string event_name = "seqd.rpc";
+  std::string subject;
+  std::string error;
+  std::string result_json;
+};
+
+std::string nsstring_to_std(id value) {
+  if (!value || ![value isKindOfClass:[NSString class]]) {
+    return std::string();
+  }
+  const char* c = [((NSString*)value) UTF8String];
+  if (!c) return std::string();
+  return std::string(c);
+}
+
+bool nsnumber_to_double(id value, double* out) {
+  if (!out) return false;
+  if (!value) return false;
+  if ([value isKindOfClass:[NSNumber class]]) {
+    *out = [((NSNumber*)value) doubleValue];
+    return true;
+  }
+  if ([value isKindOfClass:[NSString class]]) {
+    std::string s = nsstring_to_std(value);
+    char* end = nullptr;
+    errno = 0;
+    double v = std::strtod(s.c_str(), &end);
+    if (errno != 0 || !end || *end != '\0') return false;
+    *out = v;
+    return true;
+  }
+  return false;
+}
+
+bool nsnumber_to_int(id value, int* out) {
+  if (!out) return false;
+  if (!value) return false;
+  if ([value isKindOfClass:[NSNumber class]]) {
+    *out = [((NSNumber*)value) intValue];
+    return true;
+  }
+  if ([value isKindOfClass:[NSString class]]) {
+    std::string s = nsstring_to_std(value);
+    char* end = nullptr;
+    errno = 0;
+    long n = std::strtol(s.c_str(), &end, 10);
+    if (errno != 0 || !end || *end != '\0') return false;
+    *out = static_cast<int>(n);
+    return true;
+  }
+  return false;
+}
+
+id rpc_arg(NSDictionary* req, NSString* key) {
+  if (!req || !key) return nil;
+  id args = [req objectForKey:@"args"];
+  if (args && [args isKindOfClass:[NSDictionary class]]) {
+    id v = [((NSDictionary*)args) objectForKey:key];
+    if (v) return v;
+  }
+  return [req objectForKey:key];
+}
+
+std::string json_obj_single_string(std::string_view key, std::string_view value) {
+  std::string out;
+  out.reserve(key.size() + value.size() + 16);
+  out.push_back('{');
+  append_json_string(out, key);
+  out.push_back(':');
+  append_json_string(out, value);
+  out.push_back('}');
+  return out;
+}
+
+std::string rpc_response_json(const RpcDispatchResult& rpc, uint64_t ts_ms, uint64_t dur_us) {
+  std::string out;
+  out.reserve(256 + rpc.result_json.size() + rpc.error.size());
+  out.push_back('{');
+  out.append("\"ok\":");
+  out.append(rpc.ok ? "true" : "false");
+  out.append(",\"op\":");
+  append_json_string(out, rpc.op);
+  out.append(",\"request_id\":");
+  append_json_string(out, rpc.request_id);
+  out.append(",\"run_id\":");
+  append_json_string(out, rpc.run_id);
+  out.append(",\"tool_call_id\":");
+  append_json_string(out, rpc.tool_call_id);
+  out.append(",\"ts_ms\":").append(std::to_string(ts_ms));
+  out.append(",\"dur_us\":").append(std::to_string(dur_us));
+  if (rpc.ok) {
+    out.append(",\"result\":");
+    if (!rpc.result_json.empty()) {
+      out.append(rpc.result_json);
+    } else {
+      out.append("{}");
+    }
+  } else {
+    out.append(",\"error\":");
+    append_json_string(out, rpc.error);
+  }
+  out.push_back('}');
+  out.push_back('\n');
+  return out;
+}
+
+RpcDispatchResult dispatch_rpc_request(const Options& opts,
+                                       macros::Registry& registry,
+                                       std::string_view raw_json) {
+  RpcDispatchResult rpc;
+  @autoreleasepool {
+    NSData* data = [NSData dataWithBytes:raw_json.data() length:raw_json.size()];
+    NSError* err = nil;
+    id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:&err];
+    if (!obj || ![obj isKindOfClass:[NSDictionary class]]) {
+      rpc.op = "invalid";
+      rpc.error = "invalid_json";
+      return rpc;
+    }
+
+    NSDictionary* req = (NSDictionary*)obj;
+    rpc.op = nsstring_to_std([req objectForKey:@"op"]);
+    rpc.request_id = nsstring_to_std([req objectForKey:@"request_id"]);
+    rpc.run_id = nsstring_to_std([req objectForKey:@"run_id"]);
+    rpc.tool_call_id = nsstring_to_std([req objectForKey:@"tool_call_id"]);
+    if (rpc.op.empty()) {
+      rpc.op = "invalid";
+      rpc.error = "missing_op";
+      return rpc;
+    }
+    rpc.event_name = "seqd.rpc." + rpc.op;
+
+    if (rpc.op == "ping") {
+      rpc.ok = true;
+      rpc.result_json = "{\"pong\":true}";
+      return rpc;
+    }
+    if (rpc.op == "app_state") {
+      rpc.ok = true;
+      rpc.result_json = app_state_json();
+      return rpc;
+    }
+    if (rpc.op == "perf") {
+      rpc.ok = true;
+      rpc.result_json = perf_json();
+      return rpc;
+    }
+    if (rpc.op == "open_app" || rpc.op == "open_app_toggle") {
+      std::string app = nsstring_to_std(rpc_arg(req, @"name"));
+      if (app.empty()) app = nsstring_to_std(rpc_arg(req, @"app"));
+      if (app.empty()) {
+        rpc.error = "missing_name";
+        return rpc;
+      }
+      rpc.subject = app;
+      if (rpc.op == "open_app") {
+        actions::Result r = actions::open_app(app);
+        rpc.ok = r.ok;
+        if (r.ok) {
+          rpc.result_json = "{\"status\":\"ok\"}";
+        } else {
+          rpc.error = r.error;
+        }
+      } else {
+        std::string raw = handle_open_app_with_state(app, true);
+        rpc.ok = (raw.rfind("OK", 0) == 0);
+        if (rpc.ok) {
+          rpc.result_json = "{\"status\":\"ok\"}";
+        } else {
+          std::string err_s = strings::trim(raw);
+          if (strings::starts_with(err_s, "ERR ")) {
+            err_s = err_s.substr(4);
+          }
+          rpc.error = err_s.empty() ? "open_app_toggle_failed" : err_s;
+        }
+      }
+      return rpc;
+    }
+    if (rpc.op == "run_macro") {
+      std::string macro = nsstring_to_std(rpc_arg(req, @"name"));
+      if (macro.empty()) macro = nsstring_to_std(rpc_arg(req, @"macro"));
+      if (macro.empty()) {
+        rpc.error = "missing_name";
+        return rpc;
+      }
+      rpc.subject = macro;
+      const macros::Macro* entry = macros::find(registry, macro);
+      if (!entry) {
+        std::string reload_err;
+        bool reloaded = reload_macros_registry(opts, &registry, &reload_err);
+        trace::event("seqd.macros.reload", reloaded ? "ok" : ("err\t" + reload_err));
+        entry = macros::find(registry, macro);
+      }
+      if (!entry) {
+        rpc.error = "not_found";
+        return rpc;
+      }
+      if (entry->action == macros::ActionType::OpenApp ||
+          entry->action == macros::ActionType::OpenAppToggle) {
+        bool toggle = entry->action == macros::ActionType::OpenAppToggle;
+        std::string raw = handle_open_app_with_state(entry->arg, toggle);
+        rpc.ok = (raw.rfind("OK", 0) == 0);
+        if (rpc.ok) {
+          rpc.result_json = "{\"status\":\"ok\"}";
+        } else {
+          std::string err_s = strings::trim(raw);
+          if (strings::starts_with(err_s, "ERR ")) {
+            err_s = err_s.substr(4);
+          }
+          rpc.error = err_s.empty() ? "run_macro_failed" : err_s;
+        }
+      } else {
+        actions::Result result = actions::run(*entry);
+        rpc.ok = result.ok;
+        if (result.ok) {
+          rpc.result_json = "{\"status\":\"ok\"}";
+        } else {
+          rpc.error = result.error;
+        }
+      }
+      return rpc;
+    }
+
+    if (rpc.op == "click" || rpc.op == "right_click" || rpc.op == "double_click" ||
+        rpc.op == "move") {
+      double x = 0.0;
+      double y = 0.0;
+      if (!nsnumber_to_double(rpc_arg(req, @"x"), &x) ||
+          !nsnumber_to_double(rpc_arg(req, @"y"), &y)) {
+        rpc.error = "missing_coordinates";
+        return rpc;
+      }
+      rpc.subject = std::to_string(x) + " " + std::to_string(y);
+      actions::Result r{false, "invalid_op"};
+      if (rpc.op == "click") r = actions::mouse_click(x, y);
+      else if (rpc.op == "right_click") r = actions::mouse_right_click(x, y);
+      else if (rpc.op == "double_click") r = actions::mouse_double_click(x, y);
+      else if (rpc.op == "move") r = actions::mouse_move(x, y);
+      rpc.ok = r.ok;
+      if (r.ok) rpc.result_json = "{\"status\":\"ok\"}";
+      else rpc.error = r.error;
+      return rpc;
+    }
+
+    if (rpc.op == "scroll") {
+      double x = 0.0;
+      double y = 0.0;
+      int dy = 0;
+      if (!nsnumber_to_double(rpc_arg(req, @"x"), &x) ||
+          !nsnumber_to_double(rpc_arg(req, @"y"), &y) ||
+          !nsnumber_to_int(rpc_arg(req, @"dy"), &dy)) {
+        rpc.error = "missing_scroll_args";
+        return rpc;
+      }
+      rpc.subject = std::to_string(x) + " " + std::to_string(y) + " " + std::to_string(dy);
+      actions::Result r = actions::mouse_scroll(x, y, dy);
+      rpc.ok = r.ok;
+      if (r.ok) rpc.result_json = "{\"status\":\"ok\"}";
+      else rpc.error = r.error;
+      return rpc;
+    }
+
+    if (rpc.op == "drag") {
+      double x1 = 0.0;
+      double y1 = 0.0;
+      double x2 = 0.0;
+      double y2 = 0.0;
+      if (!nsnumber_to_double(rpc_arg(req, @"x1"), &x1) ||
+          !nsnumber_to_double(rpc_arg(req, @"y1"), &y1) ||
+          !nsnumber_to_double(rpc_arg(req, @"x2"), &x2) ||
+          !nsnumber_to_double(rpc_arg(req, @"y2"), &y2)) {
+        rpc.error = "missing_drag_args";
+        return rpc;
+      }
+      rpc.subject = std::to_string(x1) + " " + std::to_string(y1) + " " + std::to_string(x2) +
+                    " " + std::to_string(y2);
+      actions::Result r = actions::mouse_drag(x1, y1, x2, y2);
+      rpc.ok = r.ok;
+      if (r.ok) rpc.result_json = "{\"status\":\"ok\"}";
+      else rpc.error = r.error;
+      return rpc;
+    }
+
+    if (rpc.op == "screenshot") {
+      std::string path = nsstring_to_std(rpc_arg(req, @"path"));
+      if (path.empty()) {
+        path = "/tmp/seq_screenshot.png";
+      }
+      rpc.subject = path;
+      actions::Result r = actions::screenshot(path);
+      rpc.ok = r.ok;
+      if (r.ok) {
+        rpc.result_json = json_obj_single_string("path", path);
+      } else {
+        rpc.error = r.error;
+      }
+      return rpc;
+    }
+
+    rpc.error = "unknown_op";
+    return rpc;
+  }
+  rpc.op = "invalid";
+  rpc.error = "invalid_json";
+  return rpc;
+}
+
 std::string handle_request(const Options& opts, macros::Registry& registry, std::string_view line) {
   TRACE_SCOPE("seqd.handle_request");
   auto t0 = std::chrono::steady_clock::now();
@@ -1144,7 +1457,18 @@ std::string handle_request(const Options& opts, macros::Registry& registry, std:
   bool override_dur = false;
   uint64_t dur_value = 0;
 
-  if (view == "PING") {
+  if (!view.empty() && view.front() == '{') {
+    auto rpc_t0 = std::chrono::steady_clock::now();
+    RpcDispatchResult rpc = dispatch_rpc_request(opts, registry, view);
+    uint64_t rpc_dur_us = to_us(std::chrono::steady_clock::now() - rpc_t0);
+    event_name = rpc.event_name.empty() ? "seqd.rpc" : rpc.event_name;
+    subject = rpc.subject;
+    override_ok = true;
+    ok_value = rpc.ok;
+    override_dur = true;
+    dur_value = rpc_dur_us;
+    response = rpc_response_json(rpc, ts_ms, rpc_dur_us);
+  } else if (view == "PING") {
     event_name = "seqd.ping";
     response = "PONG\n";
   } else if (view == "PREV_APP") {

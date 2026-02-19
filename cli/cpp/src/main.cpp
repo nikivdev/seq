@@ -130,6 +130,7 @@ constexpr const char* kCmdMove = "move";
 constexpr const char* kCmdScreenshot = "screenshot";
 constexpr const char* kCmdAgent = "agent";
 constexpr const char* kCmdActionPack = "action-pack";
+constexpr const char* kCmdRpc = "rpc";
 
 void print_usage(string_view name) {
   io::out.write(name);
@@ -158,6 +159,7 @@ void print_usage(string_view name) {
   io::out.write("  move <x> <y>          Move mouse to coordinates\n");
   io::out.write("  screenshot [path]     Capture screen (default: /tmp/seq_screenshot.png)\n");
   io::out.write("  agent <instruction>   Run UI-TARS computer use agent\n");
+  io::out.write("  rpc <json>            Send typed JSON RPC request to seqd\n");
   io::out.write("  action-pack ...       Signed remote action packs (see: seq action-pack help)\n");
   io::out.write("  ping                  Ping seqd\n");
   io::out.write("  help                  Show this help\n");
@@ -181,9 +183,6 @@ int connect_socket(const std::string& path) {
     return -1;
   }
   sockaddr_un addr{};
-#if defined(__APPLE__)
-  addr.sun_len = static_cast<uint8_t>(sizeof(sockaddr_un));
-#endif
   addr.sun_family = AF_UNIX;
   if (path.size() >= sizeof(addr.sun_path)) {
     ::close(fd);
@@ -191,7 +190,19 @@ int connect_socket(const std::string& path) {
     return -1;
   }
   std::snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", path.c_str());
-  if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+#if defined(__APPLE__)
+  socklen_t addrlen =
+      static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + std::strlen(addr.sun_path));
+  if (addrlen <= 0xff) {
+    addr.sun_len = static_cast<uint8_t>(addrlen);
+  } else {
+    addr.sun_len = static_cast<uint8_t>(sizeof(sockaddr_un));
+  }
+#else
+  socklen_t addrlen =
+      static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + std::strlen(addr.sun_path) + 1);
+#endif
+  if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), addrlen) != 0) {
     ::close(fd);
     return -1;
   }
@@ -216,15 +227,25 @@ bool write_all(int fd, const void* data, size_t len) {
 }
 
 bool read_all(int fd, std::string* out) {
-  char buf[1024];
+  char buf[512];
   while (true) {
     ssize_t n = ::read(fd, buf, sizeof(buf));
     if (n > 0) {
-      out->append(buf, static_cast<size_t>(n));
+      for (ssize_t i = 0; i < n; ++i) {
+        out->push_back(buf[i]);
+        if (buf[i] == '\n') {
+          return true;
+        }
+      }
+      // Guard against unbounded responses if peer never sends '\n'.
+      if (out->size() > 1u * 1024u * 1024u) {
+        errno = EMSGSIZE;
+        return false;
+      }
       continue;
     }
     if (n == 0) {
-      return true;
+      return !out->empty();
     }
     if (n < 0 && errno == EINTR) {
       continue;
@@ -286,6 +307,30 @@ int cmd_ping(const Options& opts) {
   io::out.write(response);
   if (!response.empty() && response.back() != '\n') {
     io::out.write("\n");
+  }
+  return 0;
+}
+
+int cmd_rpc(const Options& opts, const std::string& payload) {
+  if (payload.empty()) {
+    io::err.write("error: rpc requires a JSON payload\n");
+    return 1;
+  }
+  std::string request = payload;
+  if (request.back() != '\n') {
+    request.push_back('\n');
+  }
+  std::string response;
+  int rc = send_request(opts, request, &response);
+  if (rc != 0) {
+    return rc;
+  }
+  io::out.write(response);
+  if (!response.empty() && response.back() != '\n') {
+    io::out.write("\n");
+  }
+  if (response.find("\"ok\":false") != std::string::npos) {
+    return 1;
   }
   return 0;
 }
@@ -771,6 +816,14 @@ int main(int argc, char** argv) {
   }
   if (cmd == kCmdActionPack) {
     return cmd_action_pack(argc, argv, index, opts);
+  }
+  if (cmd == kCmdRpc) {
+    if (index >= argc) {
+      io::err.write("error: rpc requires JSON payload\n");
+      return 1;
+    }
+    std::string payload = join_args(argc, argv, index);
+    return cmd_rpc(opts, payload);
   }
   if (cmd == kCmdHelp) {
     print_usage(name);

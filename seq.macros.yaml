@@ -68,17 +68,17 @@
 - name: "New Spark email"
   action: todo
   arg: ""
+- name: "open Safari new tab"
+  action: sequence
+  arg: ""
+  steps:
+    - action: open_app
+      arg: "Safari"
+    - action: keystroke
+      arg: "cmd+t"
 - name: "switch between windows of same app (or switch to another app if no more than 1 window)"
   action: switch_window_or_app
   arg: ""
-- name: "open Safari new tab"
-  action: open_url
-  arg: "about:blank"
-  app: "Safari"
-- name: "open Comet new tab"
-  action: open_url
-  arg: "about:blank"
-  app: "Comet"
 - name: "New Linear task"
   action: sequence
   arg: ""
