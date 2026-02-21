@@ -19,6 +19,7 @@
 out/
 cli/cpp/out/
 cli/swift/**/out/
+cli/swift/**/.build/
 api/rust/**/target/
 api/rust/**/Cargo.lock
 
