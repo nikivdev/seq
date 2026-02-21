@@ -4,6 +4,7 @@ Use launchd to run capture daemons as always-on supervised services (auto-restar
 
 Supervised services:
 - `next_type_key_capture_daemon.py`
+- `next_type_predictor_daemon.py`
 - `kar_signal_capture.py`
 - `agent_qa_ingest.py`
 - `seq_signal_watchdog.py`

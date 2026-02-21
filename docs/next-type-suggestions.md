@@ -40,6 +40,14 @@ Implemented in:
 - tails `cgeventtap-example` log (`/tmp/cgeventtap.log`) and emits normalized `next_type.*` rows into `SEQ_CH_MEM_PATH`
 - restart-safe via offset state file and background pidfile
 
+7. Online predictor daemon + hotkey accept path:
+- `tools/next_type_predictor_daemon.py`
+  - learns completion/next-token priors from `next_type.key_down`
+  - emits Lin widget suggestions with dedupe + cooldown
+- `tools/next_type_accept.py`
+  - accepts latest active suggestion via seq RPC (`type_text`)
+  - emits accept telemetry (`next_type.suggestion_accept.v1`)
+
 ## Why this is better than paste-only fallback
 
 - Seq path avoids clipboard churn and restore races.
@@ -70,10 +78,13 @@ Run from `~/code/seq`:
 f seq-harbor-install
 f seq-harbor-run
 f seq-harbor-status
+f next-type-accept
+f next-type-accept-dry
 ```
 
 This keeps capture always-on with:
 - `next-type` keystroke stream (`next_type.*` events in `seq_mem.jsonl`)
+- online next-type prediction (`next_type.suggestion_emit.v1`)
 - Claude/Codex Q/A capture (`agent.qa.pair` events)
 - local file-mode capture for minimal user latency
 
@@ -83,6 +94,8 @@ Useful ops:
 f seq-harbor-logs
 f next-type-capture-status
 f next-type-capture-off
+f next-type-predictor-status
+f next-type-predictor-off
 ```
 
 Operational runbook:

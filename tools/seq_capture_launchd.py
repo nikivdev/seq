@@ -57,6 +57,13 @@ SERVICES: tuple[ServiceDef, ...] = (
         pid_env="SEQ_SIGNAL_WATCHDOG_PIDFILE",
         pid_default="~/.local/state/seq/signal_watchdog.pid",
     ),
+    ServiceDef(
+        key="next_type_predictor",
+        suffix="next-type-predictor",
+        tool="next_type_predictor_daemon.py",
+        pid_env="SEQ_NEXT_TYPE_PREDICTOR_PIDFILE",
+        pid_default="~/.local/state/seq/next_type_predictor.pid",
+    ),
 )
 
 
@@ -79,6 +86,20 @@ PASS_ENV_KEYS = (
     "SEQ_NEXT_TYPE_LAUNCH_TAP",
     "SEQ_NEXT_TYPE_SESSION_ID",
     "SEQ_NEXT_TYPE_PROJECT_PATH",
+    "SEQ_NEXT_TYPE_PREDICTOR_INBOX",
+    "SEQ_NEXT_TYPE_PREDICTOR_STATE",
+    "SEQ_NEXT_TYPE_PREDICTOR_MODEL",
+    "SEQ_NEXT_TYPE_PREDICTOR_PIDFILE",
+    "SEQ_NEXT_TYPE_PREDICTOR_LOG",
+    "SEQ_NEXT_TYPE_PREDICTOR_POLL_SECONDS",
+    "SEQ_NEXT_TYPE_PREDICTOR_SAVE_INTERVAL_SECONDS",
+    "SEQ_NEXT_TYPE_PREDICTOR_COOLDOWN_MS",
+    "SEQ_NEXT_TYPE_PREDICTOR_TTL_MS",
+    "SEQ_NEXT_TYPE_PREDICTOR_MIN_PREFIX",
+    "SEQ_NEXT_TYPE_PREDICTOR_MIN_TOKEN_COUNT",
+    "SEQ_NEXT_TYPE_PREDICTOR_MIN_BIGRAM_COUNT",
+    "SEQ_NEXT_TYPE_PREDICTOR_MAX_VOCAB",
+    "SEQ_NEXT_TYPE_PREDICTOR_EMIT_SEQ_EVENTS",
     "SEQ_KAR_SIGNAL_STATE",
     "SEQ_KAR_SIGNAL_PIDFILE",
     "SEQ_KAR_SIGNAL_LOG",
@@ -247,7 +268,11 @@ def parse_args() -> argparse.Namespace:
 
     for action in ("install", "restart", "stop", "status", "uninstall", "print-plist"):
         p = sub.add_parser(action)
-        p.add_argument("--service", choices=["all", "next_type", "kar_signal", "agent_qa", "watchdog"], default="all")
+        p.add_argument(
+            "--service",
+            choices=["all", "next_type", "kar_signal", "agent_qa", "watchdog", "next_type_predictor"],
+            default="all",
+        )
         p.add_argument("--label-prefix", default=os.environ.get("SEQ_CAPTURE_LAUNCHD_LABEL_PREFIX", DEFAULT_LABEL_PREFIX))
         p.add_argument("--plist-dir", type=Path, default=DEFAULT_PLIST_DIR)
         p.add_argument("--log-dir", type=Path, default=DEFAULT_LOG_DIR)

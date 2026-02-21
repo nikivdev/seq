@@ -6,6 +6,7 @@ This is the operator path for always-on high-signal data collection from your Ma
 
 Capture continuously with near-zero user impact:
 - keystroke-level interaction signal (`next_type.*`)
+- predicted completion signal (`next_type.suggestion_emit/accept`)
 - Kar decision/outcome/override signal (`kar.*`)
 - Claude/Codex task dialogue signal (`agent.qa.pair`)
 - existing seq traces/mem events in file mode
@@ -31,6 +32,7 @@ f seq-harbor-run
 
 This (re)starts launchd-supervised capture services:
 - `next_type_key_capture_daemon.py` (`next_type.*` keystroke events)
+- `next_type_predictor_daemon.py` (OS-level completion suggestions + accept telemetry)
 - `kar_signal_capture.py` (`kar.intent/outcome/override`)
 - `agent_qa_ingest.py` (`agent.qa.pair`)
 - `seq_signal_watchdog.py` (health, auto-remediation, periodic checkpoints)
@@ -41,6 +43,7 @@ This (re)starts launchd-supervised capture services:
 f seq-harbor-status
 f seq-harbor-logs
 f seq-health
+f next-type-accept
 ```
 
 Launchd-only status:
@@ -58,6 +61,8 @@ Expected event names:
 - `next_type.key_down`
 - `next_type.key_up`
 - `next_type.flags_changed`
+- `next_type.suggestion_emit.v1`
+- `next_type.suggestion_accept.v1`
 - `kar.intent.v1`
 - `kar.outcome.v1`
 - `kar.override.v1`

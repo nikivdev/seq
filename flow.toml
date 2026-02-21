@@ -92,6 +92,16 @@ command = "python3 tools/rl_signal_filter.py --file ${SEQ_CH_MEM_PATH:-$HOME/rep
 description = "Summarize router + agent.qa high-signal events from recent seq_mem rows."
 
 [[tasks]]
+name = "rl-next-run-prep"
+command = "python3 tools/rl_next_run_prep.py --seq-mem ${SEQ_CH_MEM_PATH:-$HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl} --router-out ${ROUTER_SIGNAL_OUT:-$HOME/repos/laude-institute/harbor/data/router_signal/latest} --kar-out ${KAR_SIGNAL_OUT:-$HOME/repos/laude-institute/harbor/data/kar_signal/latest} --report ${SEQ_RL_NEXT_RUN_REPORT:-$HOME/.local/state/seq/rl_next_run_prep_report.json}"
+description = "Run strict health + dataset export/audit gates and emit a single next-run readiness report."
+
+[[tasks]]
+name = "rl-next-run-report"
+command = "sh -lc \"cat ${SEQ_RL_NEXT_RUN_REPORT:-$HOME/.local/state/seq/rl_next_run_prep_report.json}\""
+description = "Show latest RL next-run readiness report."
+
+[[tasks]]
 name = "router-signal-emit-sample"
 command = "python3 tools/router_signal_emit_sample.py"
 description = "Emit sample flow.router decision/outcome rows into seq_mem for pipeline smoke tests."
@@ -273,9 +283,54 @@ command = "sh -lc \"tail -n 120 -f ${SEQ_NEXT_TYPE_LOG:-$HOME/code/seq/cli/cpp/o
 description = "Tail key capture daemon logs."
 
 [[tasks]]
+name = "next-type-predictor-preflight"
+command = "python3 tools/next_type_predictor_daemon.py preflight"
+description = "Check next-type predictor prerequisites and writable paths."
+
+[[tasks]]
+name = "next-type-predictor-on"
+command = "python3 tools/next_type_predictor_daemon.py start"
+description = "Start background next-type predictor daemon."
+
+[[tasks]]
+name = "next-type-predictor-off"
+command = "python3 tools/next_type_predictor_daemon.py stop"
+description = "Stop background next-type predictor daemon."
+
+[[tasks]]
+name = "next-type-predictor-status"
+command = "python3 tools/next_type_predictor_daemon.py status"
+description = "Show next-type predictor daemon status + latest suggestion."
+
+[[tasks]]
+name = "next-type-predictor-once"
+command = "python3 tools/next_type_predictor_daemon.py once"
+description = "Run one predictor pass over unread seq_mem rows and exit."
+
+[[tasks]]
+name = "next-type-predictor-logs"
+command = "sh -lc \"tail -n 120 -f ${SEQ_NEXT_TYPE_PREDICTOR_LOG:-$HOME/code/seq/cli/cpp/out/logs/next_type_predictor.log}\""
+description = "Tail next-type predictor daemon logs."
+
+[[tasks]]
+name = "next-type-accept"
+command = "python3 tools/next_type_accept.py --state ${SEQ_NEXT_TYPE_PREDICTOR_STATE:-$HOME/.local/state/seq/next_type_predictor_state.json} --seq-mem ${SEQ_CH_MEM_PATH:-$HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl}"
+description = "Accept latest next-type suggestion (hotkey-safe, low-latency seq RPC)."
+
+[[tasks]]
+name = "next-type-accept-dry"
+command = "python3 tools/next_type_accept.py --dry-run --state ${SEQ_NEXT_TYPE_PREDICTOR_STATE:-$HOME/.local/state/seq/next_type_predictor_state.json} --seq-mem ${SEQ_CH_MEM_PATH:-$HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl}"
+description = "Validate latest next-type suggestion without typing it."
+
+[[tasks]]
+name = "next-type-fast-on"
+command = "sh -lc \"set -e; f seq-harbor-run; f next-type-predictor-status\""
+description = "Bring up always-on capture + prediction loop for OS-level next-type completion."
+
+[[tasks]]
 name = "seq-harbor-preflight"
-command = "sh -lc \"set -e; python3 tools/next_type_key_capture_daemon.py preflight; python3 tools/kar_signal_capture.py preflight; python3 tools/seq_signal_watchdog.py preflight; python3 tools/ch_mode.py status; python3 tools/agent_qa_ingest.py status || true\""
-description = "Preflight high-signal capture stack (key capture + Kar signals + watchdog + seq mode + agent Q/A)."
+command = "sh -lc \"set -e; python3 tools/next_type_key_capture_daemon.py preflight; python3 tools/next_type_predictor_daemon.py preflight; python3 tools/kar_signal_capture.py preflight; python3 tools/seq_signal_watchdog.py preflight; python3 tools/ch_mode.py status; python3 tools/agent_qa_ingest.py status || true\""
+description = "Preflight high-signal capture + prediction stack (keystrokes + predictor + Kar + watchdog + seq mode + agent Q/A)."
 
 [[tasks]]
 name = "seq-harbor-install"
@@ -285,7 +340,7 @@ description = "Prepare seq for low-latency RL capture and install launchd superv
 [[tasks]]
 name = "seq-harbor-run"
 command = "sh -lc \"set -e; python3 tools/seq_capture_launchd.py restart --service all; python3 tools/seq_capture_launchd.py status --service all\""
-description = "Start/restart supervised continuous capture via launchd (keystrokes + Kar + agent Q/A + watchdog)."
+description = "Start/restart supervised continuous capture + prediction via launchd (keystrokes + predictor + Kar + agent Q/A + watchdog)."
 
 [[tasks]]
 name = "seq-harbor-stop"
@@ -294,13 +349,13 @@ description = "Stop launchd-supervised capture daemons."
 
 [[tasks]]
 name = "seq-harbor-status"
-command = "sh -lc \"python3 tools/seq_capture_launchd.py status --service all || true; echo '---'; python3 tools/next_type_key_capture_daemon.py status || true; echo '---'; python3 tools/kar_signal_capture.py status || true; echo '---'; python3 tools/agent_qa_ingest.py status || true; echo '---'; python3 tools/seq_signal_watchdog.py status || true; echo '---'; python3 tools/ch_mode.py status\""
-description = "Show launchd + daemon + ClickHouse capture status."
+command = "sh -lc \"python3 tools/seq_capture_launchd.py status --service all || true; echo '---'; python3 tools/next_type_key_capture_daemon.py status || true; echo '---'; python3 tools/next_type_predictor_daemon.py status || true; echo '---'; python3 tools/kar_signal_capture.py status || true; echo '---'; python3 tools/agent_qa_ingest.py status || true; echo '---'; python3 tools/seq_signal_watchdog.py status || true; echo '---'; python3 tools/ch_mode.py status\""
+description = "Show launchd + daemon + prediction + ClickHouse capture status."
 
 [[tasks]]
 name = "seq-harbor-logs"
-command = "sh -lc \"mkdir -p $HOME/code/seq/cli/cpp/out/logs; touch $HOME/code/seq/cli/cpp/out/logs/next_type.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/kar_signal.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/agent_qa.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/watchdog.launchd.stderr.log; tail -n 120 -f $HOME/code/seq/cli/cpp/out/logs/next_type.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/kar_signal.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/agent_qa.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/watchdog.launchd.stderr.log\""
-description = "Tail launchd capture logs (next_type + Kar + agent Q/A + watchdog)."
+command = "sh -lc \"mkdir -p $HOME/code/seq/cli/cpp/out/logs; touch $HOME/code/seq/cli/cpp/out/logs/next_type.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/next_type_predictor.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/kar_signal.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/agent_qa.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/watchdog.launchd.stderr.log; tail -n 120 -f $HOME/code/seq/cli/cpp/out/logs/next_type.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/next_type_predictor.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/kar_signal.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/agent_qa.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/watchdog.launchd.stderr.log\""
+description = "Tail launchd capture logs (next_type + predictor + Kar + agent Q/A + watchdog)."
 
 [[tasks]]
 name = "seq-capture-launchd-install"
@@ -605,6 +660,22 @@ variables = [
   { key = "SEQ_NEXT_TYPE_LAUNCH_TAP", default = "true" },
   { key = "SEQ_NEXT_TYPE_SESSION_ID", default = "" },
   { key = "SEQ_NEXT_TYPE_PROJECT_PATH", default = "" },
+  { key = "SEQ_NEXT_TYPE_PREDICTOR_INBOX", default = "~/Library/Application Support/Lin/intent-inbox.jsonl" },
+  { key = "SEQ_NEXT_TYPE_PREDICTOR_STATE", default = "~/.local/state/seq/next_type_predictor_state.json" },
+  { key = "SEQ_NEXT_TYPE_PREDICTOR_MODEL", default = "~/.local/state/seq/next_type_predictor_model.json" },
+  { key = "SEQ_NEXT_TYPE_PREDICTOR_PIDFILE", default = "~/.local/state/seq/next_type_predictor.pid" },
+  { key = "SEQ_NEXT_TYPE_PREDICTOR_LOG", default = "~/code/seq/cli/cpp/out/logs/next_type_predictor.log" },
+  { key = "SEQ_NEXT_TYPE_PREDICTOR_POLL_SECONDS", default = "0.20" },
+  { key = "SEQ_NEXT_TYPE_PREDICTOR_SAVE_INTERVAL_SECONDS", default = "20" },
+  { key = "SEQ_NEXT_TYPE_PREDICTOR_COOLDOWN_MS", default = "1200" },
+  { key = "SEQ_NEXT_TYPE_PREDICTOR_TTL_MS", default = "12000" },
+  { key = "SEQ_NEXT_TYPE_PREDICTOR_MIN_PREFIX", default = "2" },
+  { key = "SEQ_NEXT_TYPE_PREDICTOR_MIN_TOKEN_COUNT", default = "2" },
+  { key = "SEQ_NEXT_TYPE_PREDICTOR_MIN_BIGRAM_COUNT", default = "2" },
+  { key = "SEQ_NEXT_TYPE_PREDICTOR_MAX_VOCAB", default = "12000" },
+  { key = "SEQ_NEXT_TYPE_PREDICTOR_EMIT_SEQ_EVENTS", default = "true" },
+  { key = "SEQ_NEXT_TYPE_ACCEPT_MAX_AGE_MS", default = "15000" },
+  { key = "SEQ_NEXT_TYPE_ACCEPT_MIN_SCORE", default = "1" },
   { key = "SEQ_KAR_SIGNAL_STATE", default = "~/.local/state/seq/kar_signal_state.json" },
   { key = "SEQ_KAR_SIGNAL_PIDFILE", default = "~/.local/state/seq/kar_signal.pid" },
   { key = "SEQ_KAR_SIGNAL_LOG", default = "~/code/seq/cli/cpp/out/logs/kar_signal_capture.log" },
@@ -663,6 +734,7 @@ variables = [
   { key = "ROUTER_SIGNAL_MAX_TASK_DOMINANCE", default = "0.55" },
   { key = "ROUTER_SIGNAL_MIN_OVERRIDES", default = "20" },
   { key = "ROUTER_SIGNAL_MIN_FAILUREISH", default = "60" },
+  { key = "SEQ_RL_NEXT_RUN_REPORT", default = "~/.local/state/seq/rl_next_run_prep_report.json" },
   { key = "SEQ_EVERRUNS_MAPLE_LOCAL_ENDPOINT", default = "http://ingest.maple.localhost/v1/traces" },
   { key = "SEQ_EVERRUNS_MAPLE_LOCAL_INGEST_KEY", default = "" },
   { key = "SEQ_EVERRUNS_MAPLE_HOSTED_ENDPOINT", default = "https://ingest.1focus.ai/v1/traces" },
