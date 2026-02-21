@@ -131,6 +131,7 @@ def build_training_pair(
         "language": language,
         "file_ext": file_ext,
         "project_name": project_name,
+        "session_id": burst.get("session_id") or (context.get("session_id", "") if context else ""),
         "burst_wpm": burst.get("wpm_estimate", 0),
         "burst_duration_ms": burst.get("duration_ms", 0),
         "burst_char_count": burst.get("char_count", 0),

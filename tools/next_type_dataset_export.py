@@ -116,6 +116,7 @@ def to_verifiers_format(phrases: list[dict[str, Any]], split: str) -> list[dict[
                 "language": p.get("language", ""),
                 "file_ext": p.get("file_ext", ""),
                 "project_name": p.get("project_name", ""),
+                "session_id": p.get("session_id", ""),
                 "burst_wpm": p.get("burst_wpm", 0),
                 "burst_char_count": p.get("burst_char_count", 0),
                 "split": split,
@@ -154,13 +155,16 @@ def compute_stats(
 
     languages: dict[str, int] = {}
     projects: dict[str, int] = {}
+    sessions: dict[str, int] = {}
     total_chars = 0
 
     for p in all_phrases:
         lang = p.get("language", "") or "unknown"
         proj = p.get("project_name", "") or "unknown"
+        sess = p.get("session_id", "") or "unknown"
         languages[lang] = languages.get(lang, 0) + 1
         projects[proj] = projects.get(proj, 0) + 1
+        sessions[sess] = sessions.get(sess, 0) + 1
         total_chars += len(p.get("answer", ""))
 
     avg_chars = total_chars / len(all_phrases) if all_phrases else 0
@@ -173,6 +177,7 @@ def compute_stats(
         "avg_answer_chars": round(avg_chars, 1),
         "languages": dict(sorted(languages.items(), key=lambda kv: -kv[1])),
         "projects": dict(sorted(projects.items(), key=lambda kv: -kv[1])),
+        "sessions": dict(sorted(sessions.items(), key=lambda kv: -kv[1])[:20]),
     }
 
 
