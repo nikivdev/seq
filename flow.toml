@@ -328,6 +328,71 @@ command = "sh -lc \"set -e; f seq-harbor-run; f next-type-predictor-status\""
 description = "Bring up always-on capture + prediction loop for OS-level next-type completion."
 
 [[tasks]]
+name = "next-type-data-collect-on"
+command = "sh -lc \"set -e; f seq-harbor-run; f next-type-context-probe-on; f next-type-context-probe-status\""
+description = "Start continuous capture for next-type training data (keystrokes + context)."
+
+[[tasks]]
+name = "next-type-data-collect-off"
+command = "sh -lc \"set -e; f next-type-context-probe-off || true; f seq-harbor-stop\""
+description = "Stop continuous next-type training data capture."
+
+[[tasks]]
+name = "next-type-context-probe-preflight"
+command = "python3 tools/next_type_context_probe.py preflight"
+description = "Check context probe prerequisites (osascript + accessibility)."
+
+[[tasks]]
+name = "next-type-context-probe-on"
+command = "python3 tools/next_type_context_probe.py start"
+description = "Start background Zed context probe daemon."
+
+[[tasks]]
+name = "next-type-context-probe-off"
+command = "python3 tools/next_type_context_probe.py stop"
+description = "Stop background Zed context probe daemon."
+
+[[tasks]]
+name = "next-type-context-probe-status"
+command = "python3 tools/next_type_context_probe.py status"
+description = "Show Zed context probe daemon status."
+
+[[tasks]]
+name = "next-type-context-probe-once"
+command = "python3 tools/next_type_context_probe.py once"
+description = "Run one context probe pass and exit."
+
+[[tasks]]
+name = "next-type-context-probe-logs"
+command = "sh -lc \"tail -n 120 -f ${SEQ_NEXT_TYPE_CONTEXT_LOG:-$HOME/code/seq/cli/cpp/out/logs/next_type_context_probe.log}\""
+description = "Tail context probe daemon logs."
+
+[[tasks]]
+name = "next-type-phrase-build"
+command = "python3 tools/next_type_phrase_builder.py"
+description = "Build (context, phrase) training pairs from seq_mem text bursts + context events."
+
+[[tasks]]
+name = "next-type-dataset-export"
+command = "python3 tools/next_type_dataset_export.py --stats"
+description = "Export filtered training dataset with train/val/test splits for prime-rl."
+
+[[tasks]]
+name = "next-type-dataset-stage-prime"
+command = "python3 tools/next_type_dataset_stage_prime.py"
+description = "Copy combined next-type dataset into prime-rl environment data path."
+
+[[tasks]]
+name = "next-type-dataset-build-and-stage"
+command = "sh -lc \"set -euo pipefail; f next-type-phrase-build; f next-type-dataset-export; f next-type-dataset-stage-prime\""
+description = "Build phrase pairs, export splits, and stage dataset for prime-rl env."
+
+[[tasks]]
+name = "next-type-dataset-stats"
+command = "sh -lc \"cat ${SEQ_NEXT_TYPE_DATASET_DIR:-$HOME/.local/state/seq/next_type_dataset}/manifest.json 2>/dev/null || echo 'no dataset manifest found — run next-type-dataset-export first'\""
+description = "Show next-type dataset summary (counts per language, per project, per split)."
+
+[[tasks]]
 name = "seq-harbor-preflight"
 command = "sh -lc \"set -e; python3 tools/next_type_key_capture_daemon.py preflight; python3 tools/next_type_predictor_daemon.py preflight; python3 tools/kar_signal_capture.py preflight; python3 tools/seq_signal_watchdog.py preflight; python3 tools/ch_mode.py status; python3 tools/agent_qa_ingest.py status || true\""
 description = "Preflight high-signal capture + prediction stack (keystrokes + predictor + Kar + watchdog + seq mode + agent Q/A)."
@@ -676,6 +741,15 @@ variables = [
   { key = "SEQ_NEXT_TYPE_PREDICTOR_EMIT_SEQ_EVENTS", default = "true" },
   { key = "SEQ_NEXT_TYPE_ACCEPT_MAX_AGE_MS", default = "15000" },
   { key = "SEQ_NEXT_TYPE_ACCEPT_MIN_SCORE", default = "1" },
+  { key = "SEQ_NEXT_TYPE_CONTEXT_STATE", default = "~/.local/state/seq/next_type_context_probe_state.json" },
+  { key = "SEQ_NEXT_TYPE_CONTEXT_PIDFILE", default = "~/.local/state/seq/next_type_context_probe.pid" },
+  { key = "SEQ_NEXT_TYPE_CONTEXT_LOG", default = "~/code/seq/cli/cpp/out/logs/next_type_context_probe.log" },
+  { key = "SEQ_NEXT_TYPE_CONTEXT_POLL_SECONDS", default = "3.0" },
+  { key = "SEQ_NEXT_TYPE_PHRASES_OUT", default = "~/.local/state/seq/next_type_phrases.jsonl" },
+  { key = "SEQ_NEXT_TYPE_DATASET_DIR", default = "~/.local/state/seq/next_type_dataset" },
+  { key = "SEQ_NEXT_TYPE_PRIME_RL_ENV_DATA", default = "~/repos/PrimeIntellect-ai/prime-rl/examples/flow_rise/environment_next_type/data/next_type_phrases.jsonl" },
+  { key = "SEQ_NEXT_TYPE_MIN_BURST_CHARS", default = "3" },
+  { key = "SEQ_NEXT_TYPE_CONTEXT_WINDOW_MS", default = "10000" },
   { key = "SEQ_KAR_SIGNAL_STATE", default = "~/.local/state/seq/kar_signal_state.json" },
   { key = "SEQ_KAR_SIGNAL_PIDFILE", default = "~/.local/state/seq/kar_signal.pid" },
   { key = "SEQ_KAR_SIGNAL_LOG", default = "~/code/seq/cli/cpp/out/logs/kar_signal_capture.log" },
