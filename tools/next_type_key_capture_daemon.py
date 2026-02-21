@@ -27,10 +27,7 @@ from typing import Any
 
 DEFAULT_TAP_LOG = "/tmp/cgeventtap.log"
 DEFAULT_TAP_BIN = str(
-    Path(
-        "~/repos/pqrs-org/osx-event-observer-examples/cgeventtap-example/build_xcode/Release/"
-        "cgeventtap-example.app/Contents/MacOS/cgeventtap-example"
-    ).expanduser()
+    Path("~/code/seq/cli/cpp/out/bin/seq-cgeventtap-headless").expanduser()
 )
 DEFAULT_SEQ_MEM = str(Path("~/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl").expanduser())
 DEFAULT_STATE = str(Path("~/.local/state/seq/next_type_key_capture_state.json").expanduser())
@@ -40,6 +37,7 @@ DEFAULT_LOG = str(Path("~/code/seq/cli/cpp/out/logs/next_type_key_capture.log").
 KEY_DOWN_RE = re.compile(r"^\s*(\d+)\s+keyDown\s+(\d+)\s*$")
 KEY_UP_RE = re.compile(r"^\s*(\d+)\s+keyUp\s+(\d+)\s*$")
 FLAGS_RE = re.compile(r"^\s*(\d+)\s+flagsChanged\s+0x([0-9A-Fa-f]+)\s*$")
+TAP_RESTART_COOLDOWN_SECONDS = float(os.environ.get("SEQ_NEXT_TYPE_TAP_RESTART_COOLDOWN_S", "60"))
 
 
 @dataclass
@@ -71,6 +69,7 @@ class CaptureDaemon:
         self.lines_emitted = 0
         self.lines_skipped = 0
         self.last_state_save = 0.0
+        self.last_tap_launch_attempt = 0.0
 
     def log(self, message: str) -> None:
         ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -174,15 +173,19 @@ class CaptureDaemon:
             self.log(f"tap binary missing: {self.cfg.tap_bin}")
             return
 
-        proc = subprocess.run(
-            ["pgrep", "-f", "cgeventtap-example"],
-            text=True,
-            capture_output=True,
-        )
+        now = time.monotonic()
+        if (now - self.last_tap_launch_attempt) < TAP_RESTART_COOLDOWN_SECONDS:
+            return
+
+        # Match the configured tap binary by basename so this works for both
+        # the headless helper and any legacy binary path.
+        pattern = self.cfg.tap_bin.name or "cgeventtap"
+        proc = subprocess.run(["pgrep", "-f", pattern], text=True, capture_output=True)
         if proc.returncode == 0 and proc.stdout.strip():
             return
 
         try:
+            self.last_tap_launch_attempt = now
             subprocess.Popen(
                 [str(self.cfg.tap_bin)],
                 stdin=subprocess.DEVNULL,
@@ -190,9 +193,9 @@ class CaptureDaemon:
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
-            self.log("launched cgeventtap-example")
+            self.log(f"launched tap binary: {self.cfg.tap_bin}")
         except Exception as exc:
-            self.log(f"failed to launch cgeventtap-example: {exc}")
+            self.log(f"failed to launch tap binary: {exc}")
 
     def start_ingest_subprocess(self) -> subprocess.Popen[str]:
         cmd = [
@@ -300,6 +303,7 @@ class CaptureDaemon:
         )
 
         while not self.stop_requested:
+            self.ensure_tap_running()
             if proc.poll() is not None:
                 self.log("ingest subprocess exited; restarting")
                 proc = self.start_ingest_subprocess()
@@ -344,6 +348,7 @@ class CaptureDaemon:
                             self.save_state(force=False)
                         continue
 
+                    self.ensure_tap_running()
                     time.sleep(self.cfg.poll_seconds)
                     self.save_state(force=False)
 
@@ -427,13 +432,10 @@ def cmd_preflight(cfg: Config, _args: argparse.Namespace) -> int:
 
     if not cfg.tap_bin.exists() or not os.access(cfg.tap_bin, os.X_OK):
         ok = False
-        print("- FAIL: cgeventtap binary missing or not executable")
-        print(
-            "  Build it in ~/repos/pqrs-org/osx-event-observer-examples/cgeventtap-example "
-            "(Xcode Release build)."
-        )
+        print("- FAIL: tap binary missing or not executable")
+        print("  Run: f next-type-tap-build")
     else:
-        print("- OK: cgeventtap binary present")
+        print("- OK: tap binary present")
 
     ingest_script = Path(__file__).resolve().parent / "next_type_key_event_ingest.py"
     if not ingest_script.exists():
@@ -447,7 +449,7 @@ def cmd_preflight(cfg: Config, _args: argparse.Namespace) -> int:
     cfg.out_path.parent.mkdir(parents=True, exist_ok=True)
     print("- OK: output/state/log directories are writable")
 
-    print("- NOTE: grant Accessibility/Input Monitoring if macOS prompts for cgeventtap-example")
+    print("- NOTE: grant Input Monitoring / Accessibility if macOS prompts for the tap binary")
     return 0 if ok else 1
 
 

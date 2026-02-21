@@ -61,12 +61,34 @@ Expected event names:
 - `next_type.key_down`
 - `next_type.key_up`
 - `next_type.flags_changed`
+- `next_type.text_burst.v1`
+- `next_type.context.v1`
 - `next_type.suggestion_emit.v1`
 - `next_type.suggestion_accept.v1`
 - `kar.intent.v1`
 - `kar.outcome.v1`
 - `kar.override.v1`
 - `agent.qa.pair`
+
+## Checkpoint deltas (see data with your own eyes)
+
+The watchdog writes periodic checkpoints under:
+- `${SEQ_SIGNAL_WATCHDOG_SNAPSHOT_DIR}` (default `~/.local/state/seq/checkpoints`)
+
+Use these to inspect what changed between snapshots:
+
+```bash
+f seq-checkpoints-list
+f seq-checkpoint-now-and-delta
+f seq-checkpoints-delta
+f seq-checkpoints-delta-watch
+```
+
+`seq-checkpoints-delta` shows:
+- file growth (`seq_mem` / `seq_trace`)
+- delta of manifest signal counters
+- actual event counts between checkpoint timestamps
+- high-signal counts (`next_type.*`, `kar.*`, `agent.qa.pair`, router signals)
 
 ## Stop capture
 
@@ -76,8 +98,10 @@ f seq-harbor-stop
 
 ## Notes
 
-- `cgeventtap-example` is listen-only; capture happens out-of-band and should not add typing latency.
-- If key events are missing, verify macOS Accessibility/Input Monitoring permissions for the event-tap app.
+- The headless tap is listen-only; capture happens out-of-band and should not add typing latency.
+- Capture uses `seq-cgeventtap-headless` by default (no window/UI popup).
+- If key events are missing, verify macOS Accessibility/Input Monitoring permissions for the tap binary.
+- Auto-relaunch of the tap binary is rate-limited by `SEQ_NEXT_TYPE_TAP_RESTART_COOLDOWN_S` (default 60s) to avoid prompt storms.
 - For warm-start behavior, key capture stores offsets in `SEQ_NEXT_TYPE_STATE`.
 - For first-time Kar dataset bootstrapping, run `f kar-signal-backfill` once.
 - For launchd internals and labels, see `docs/seq-capture-launchd.md`.

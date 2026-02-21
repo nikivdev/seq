@@ -37,7 +37,7 @@ Implemented in:
 
 6. Continuous key-event capture daemon:
 - `tools/next_type_key_capture_daemon.py`
-- tails `cgeventtap-example` log (`/tmp/cgeventtap.log`) and emits normalized `next_type.*` rows into `SEQ_CH_MEM_PATH`
+- tails headless tap log (`/tmp/cgeventtap.log`) and emits normalized `next_type.*` rows into `SEQ_CH_MEM_PATH`
 - restart-safe via offset state file and background pidfile
 
 7. Online predictor daemon + hotkey accept path:
