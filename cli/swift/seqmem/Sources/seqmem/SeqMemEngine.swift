@@ -118,6 +118,39 @@ private final class CHBridge: @unchecked Sendable {
     var available: Bool { createWriter != nil && pushMemEvent != nil }
 }
 
+private enum CHMode {
+    case native
+    case mirror
+    case file
+    case off
+
+    static func fromEnv(_ raw: String?) -> CHMode {
+        guard let raw, !raw.isEmpty else { return .file }
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "mirror", "dual":
+            return .mirror
+        case "file", "spool", "local-file":
+            return .file
+        case "off", "none", "disabled":
+            return .off
+        case "native", "local", "remote", "remote-only":
+            return .native
+        default:
+            return .file
+        }
+    }
+
+    var wantsNative: Bool {
+        switch self {
+        case .native, .mirror:
+            return true
+        case .file, .off:
+            return false
+        }
+    }
+
+}
+
 private enum SeqMemKinds {
     static let session = "seqmem.session"
     static let event = "seqmem.event"
@@ -516,7 +549,7 @@ final class SeqMemEngine: @unchecked Sendable {
     private let dedupCapacity: Int
     private let emitClickHouseRows: Bool
     private let sessionId: String
-    private let chWriter: OpaquePointer?  // Native CH writer via C bridge (nil = JSON fallback)
+    private let chWriter: OpaquePointer?
 
     private struct State {
         var start = Date()
@@ -545,11 +578,11 @@ final class SeqMemEngine: @unchecked Sendable {
     init(waxURL: URL) {
         let chPath = SeqMemGlobal.defaultClickHousePath()
         let env = ProcessInfo.processInfo.environment
+        let chMode = CHMode.fromEnv(env["SEQ_CH_MODE"])
 
-        // Try native ClickHouse protocol first (zero-cost via C bridge).
-        // Falls back to JSON file-append if the bridge isn't linked.
+        // Native protocol via C bridge when enabled by mode/env.
         let bridge = CHBridge.shared
-        if bridge.available {
+        if chMode.wantsNative, bridge.available {
             let host = env["SEQ_CH_HOST"] ?? "127.0.0.1"
             let port = UInt16(env["SEQ_CH_PORT"] ?? "") ?? 9000
             let db = env["SEQ_CH_DATABASE"] ?? "seq"
@@ -562,7 +595,20 @@ final class SeqMemEngine: @unchecked Sendable {
             self.chWriter = nil
         }
 
-        self.emitClickHouseRows = (chWriter != nil || chPath != nil)
+        // mirror: always append local JSONEachRow when path exists.
+        // native: prefer bridge, but keep file fallback if bridge unavailable.
+        // file: JSONEachRow only.
+        // off: disable both.
+        let shouldEmitFileRows: Bool
+        switch chMode {
+        case .mirror, .file:
+            shouldEmitFileRows = true
+        case .native:
+            shouldEmitFileRows = (chWriter == nil)
+        case .off:
+            shouldEmitFileRows = false
+        }
+        self.emitClickHouseRows = shouldEmitFileRows && (chPath != nil)
         if let s = env["SEQ_MEM_SESSION_ID"], !s.isEmpty {
             self.sessionId = s
         } else {
@@ -665,12 +711,9 @@ final class SeqMemEngine: @unchecked Sendable {
         let eventId = SHA256Checksum.digest(eventBuf)
         let eventIdHex = hexString(eventId)
 
-        // ClickHouse output: prefer native protocol (C bridge), fall back to JSON file.
+        // Local JSONEachRow spool for mirror/file (or native fallback).
         let chRow: Data?
-        if chWriter != nil {
-            // Native path: will push via C bridge inside shouldPersist block below.
-            chRow = nil
-        } else if emitClickHouseRows {
+        if emitClickHouseRows {
             chRow = ClickHouseRowV1.encodeJSONEachRow(
                 tsMs: tsMs,
                 durUs: durUs,
@@ -710,7 +753,7 @@ final class SeqMemEngine: @unchecked Sendable {
             }
 
             if shouldPersist {
-                // Push to native ClickHouse writer if available (zero-cost path).
+                // Push to native ClickHouse writer when mode allows it.
                 if let w = chWriter, let push = CHBridge.shared.pushMemEvent {
                     sessionId.withCString { sid in
                         eventIdHex.withCString { eid in

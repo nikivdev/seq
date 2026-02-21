@@ -250,6 +250,56 @@ void post_cmd_key(CGKeyCode key) {
   post_key(key, kCGEventFlagMaskCommand);
 }
 
+bool post_unicode_chunk(std::u16string_view chunk, std::optional<pid_t> pid) {
+  CGEventRef down = CGEventCreateKeyboardEvent(nullptr, (CGKeyCode)kVK_Space, true);
+  CGEventRef up = CGEventCreateKeyboardEvent(nullptr, (CGKeyCode)kVK_Space, false);
+  if (!down || !up) {
+    if (down) CFRelease(down);
+    if (up) CFRelease(up);
+    return false;
+  }
+  CGEventKeyboardSetUnicodeString(down, (UniCharCount)chunk.size(), (const UniChar*)chunk.data());
+  CGEventKeyboardSetUnicodeString(up, (UniCharCount)chunk.size(), (const UniChar*)chunk.data());
+  if (pid) {
+    CGEventPostToPid(*pid, down);
+    CGEventPostToPid(*pid, up);
+  } else {
+    CGEventPost(kCGHIDEventTap, down);
+    CGEventPost(kCGHIDEventTap, up);
+  }
+  CFRelease(down);
+  CFRelease(up);
+  return true;
+}
+
+Result type_text_impl(std::string_view text, std::optional<pid_t> pid) {
+  if (text.empty()) return {true, ""};
+  @autoreleasepool {
+    std::string text_str(text);
+    NSString* ns = [NSString stringWithUTF8String:text_str.c_str()];
+    if (!ns) {
+      return {false, "invalid_utf8"};
+    }
+    NSUInteger len = [ns length];
+    const NSUInteger kChunk = 64;
+    for (NSUInteger i = 0; i < len; i += kChunk) {
+      NSRange range = NSMakeRange(i, std::min(kChunk, len - i));
+      NSString* part = [ns substringWithRange:range];
+      std::u16string chunk;
+      chunk.resize((size_t)[part length]);
+      if (!chunk.empty()) {
+        [part getCharacters:(unichar*)chunk.data() range:NSMakeRange(0, [part length])];
+        if (!post_unicode_chunk(std::u16string_view(chunk), pid)) {
+          return {false, "type_failed"};
+        }
+      }
+      // Small pacing to avoid dropped events under heavy UI load.
+      usleep(800);
+    }
+  }
+  return {true, ""};
+}
+
 Result mouse_click_impl(double x, double y) {
   CGPoint pt = CGPointMake(x, y);
   CGEventRef down = CGEventCreateMouseEvent(nullptr, kCGEventLeftMouseDown, pt, kCGMouseButtonLeft);
@@ -507,6 +557,25 @@ Result run_keystroke_spec(std::string_view spec, std::optional<pid_t> pid) {
   }
   post_key(k.key, k.flags, pid);
   return {true, ""};
+}
+
+Result type_text_local(std::string_view text, pid_t pid) {
+  std::optional<pid_t> target;
+  if (pid > 0) target = pid;
+  return type_text_impl(text, target);
+}
+
+Result replace_typed_text_local(int delete_count, std::string_view replacement, pid_t pid) {
+  if (delete_count < 0) {
+    return {false, "invalid_delete_count"};
+  }
+  std::optional<pid_t> target;
+  if (pid > 0) target = pid;
+  for (int i = 0; i < delete_count; ++i) {
+    post_key((CGKeyCode)kVK_Delete, 0, target);
+    usleep(800);
+  }
+  return type_text_impl(replacement, target);
 }
 
 Result open_app_impl(std::string_view app, bool toggle) {
@@ -2305,6 +2374,15 @@ Result run(const macros::Macro& macro) {
       return {false, "unknown action"};
   }
 }
+
+Result type_text(std::string_view text, pid_t pid) {
+  return type_text_local(text, pid);
+}
+
+Result replace_typed_text(int delete_count, std::string_view replacement, pid_t pid) {
+  return replace_typed_text_local(delete_count, replacement, pid);
+}
+
 void prewarm_app_cache() {
   @autoreleasepool {
     NSArray<NSRunningApplication*>* apps = [[NSWorkspace sharedWorkspace] runningApplications];

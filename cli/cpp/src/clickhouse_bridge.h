@@ -9,6 +9,20 @@ extern "C" {
 
 typedef struct seq_ch_writer seq_ch_writer_t;
 
+typedef struct seq_ch_writer_perf_snapshot {
+  uint64_t push_calls;
+  uint64_t wake_count;
+  uint64_t flush_count;
+  uint64_t total_flush_us;
+  uint64_t max_flush_us;
+  uint64_t last_flush_us;
+  uint64_t last_flush_rows;
+  uint64_t last_pending_rows;
+  uint64_t max_pending_rows;
+  uint64_t error_count;
+  uint64_t inserted_count;
+} seq_ch_writer_perf_snapshot_t;
+
 seq_ch_writer_t* seq_ch_writer_create(const char* host,
                                        uint16_t port,
                                        const char* database);
@@ -40,6 +54,7 @@ void seq_ch_flush(seq_ch_writer_t* w);
 
 uint64_t seq_ch_error_count(const seq_ch_writer_t* w);
 uint64_t seq_ch_inserted_count(const seq_ch_writer_t* w);
+void seq_ch_writer_perf_snapshot(const seq_ch_writer_t* w, seq_ch_writer_perf_snapshot_t* out);
 
 /* ── Context events ──────────────────────────────────────────────────────── */
 

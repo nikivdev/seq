@@ -192,13 +192,18 @@ CaptureResult run_capture(const std::vector<std::string>& args,
   }
   argv.push_back(nullptr);
 
-  std::vector<std::string> env_storage = build_envp(env_add);
+  char** spawn_envp = environ;
+  std::vector<std::string> env_storage;
   std::vector<char*> envp;
-  envp.reserve(env_storage.size() + 1);
-  for (auto& s : env_storage) {
-    envp.push_back(s.data());
+  if (!env_add.empty()) {
+    env_storage = build_envp(env_add);
+    envp.reserve(env_storage.size() + 1);
+    for (auto& s : env_storage) {
+      envp.push_back(s.data());
+    }
+    envp.push_back(nullptr);
+    spawn_envp = envp.data();
   }
-  envp.push_back(nullptr);
 
   int out_pipe[2] = {-1, -1};
   int err_pipe[2] = {-1, -1};
@@ -230,7 +235,7 @@ CaptureResult run_capture(const std::vector<std::string>& args,
 #endif
 
   pid_t pid = 0;
-  int spawn_res = posix_spawnp(&pid, argv[0], &actions, nullptr, argv.data(), envp.data());
+  int spawn_res = posix_spawnp(&pid, argv[0], &actions, nullptr, argv.data(), spawn_envp);
   posix_spawn_file_actions_destroy(&actions);
 
   ::close(out_pipe[1]);

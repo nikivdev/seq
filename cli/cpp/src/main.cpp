@@ -14,7 +14,10 @@
 #include <signal.h>
 #include <sys/stat.h>
 #include <algorithm>
+#include <charconv>
+#include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <pwd.h>
@@ -22,6 +25,7 @@
 #include <string_view>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <thread>
 #include <vector>
 #include <unistd.h>
 
@@ -114,6 +118,7 @@ constexpr const char* kCmdOpenApp = "open-app";
 constexpr const char* kCmdOpenAppToggle = "open-app-toggle";
 constexpr const char* kCmdAppState = "app-state";
 constexpr const char* kCmdPerf = "perf";
+constexpr const char* kCmdPerfSmoke = "perf-smoke";
 constexpr const char* kCmdApps = "apps";
 constexpr const char* kCmdMemMetrics = "mem-metrics";
 constexpr const char* kCmdMemTail = "mem-tail";
@@ -144,6 +149,7 @@ void print_usage(string_view name) {
   io::out.write("  open-app-toggle <name> Open app or Cmd-Tab if already frontmost\n");
   io::out.write("  app-state             Dump seqd cached frontmost/previous app\n");
   io::out.write("  perf                  Dump seqd perf stats (CPU time, RSS)\n");
+  io::out.write("  perf-smoke [n] [ms]   Sample `perf` n times (default 20) every ms (default 100)\n");
   io::out.write("  apps                  List running apps (name/bundle_id/pid/bundle_url)\n");
   io::out.write("  mem-metrics           Query seq memory engine metrics\n");
   io::out.write("  mem-tail <n>          Tail last N memory engine events\n");
@@ -358,6 +364,138 @@ int cmd_perf(const Options& opts) {
   if (!response.empty() && response.back() != '\n') {
     io::out.write("\n");
   }
+  return 0;
+}
+
+bool json_u64_field(std::string_view json, std::string_view key, std::uint64_t* out) {
+  if (!out) {
+    return false;
+  }
+  std::string needle;
+  needle.reserve(key.size() + 4);
+  needle.push_back('"');
+  needle.append(key.data(), key.size());
+  needle.append("\":");
+  auto pos = json.find(needle);
+  if (pos == std::string_view::npos) {
+    return false;
+  }
+  pos += needle.size();
+  while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t')) {
+    ++pos;
+  }
+  const char* begin = json.data() + pos;
+  const char* end = json.data() + json.size();
+  std::uint64_t value = 0;
+  auto parsed = std::from_chars(begin, end, value);
+  if (parsed.ec != std::errc{}) {
+    return false;
+  }
+  *out = value;
+  return true;
+}
+
+int cmd_perf_smoke(const Options& opts, int argc, char** argv, int index) {
+  int samples = 20;
+  int sleep_ms = 100;
+  if (index < argc) {
+    samples = std::atoi(argv[index]);
+    ++index;
+  }
+  if (index < argc) {
+    sleep_ms = std::atoi(argv[index]);
+    ++index;
+  }
+  if (samples < 2) {
+    io::err.write("error: perf-smoke requires at least 2 samples\n");
+    return 1;
+  }
+  if (sleep_ms < 0) {
+    io::err.write("error: perf-smoke sleep ms must be >= 0\n");
+    return 1;
+  }
+
+  struct PerfSample {
+    std::uint64_t push_calls = 0;
+    std::uint64_t wake_count = 0;
+    std::uint64_t flush_count = 0;
+    std::uint64_t total_flush_us = 0;
+    std::uint64_t max_flush_us = 0;
+    std::uint64_t last_flush_us = 0;
+    std::uint64_t last_pending_rows = 0;
+    std::uint64_t max_pending_rows = 0;
+    std::uint64_t inserted_count = 0;
+    std::uint64_t error_count = 0;
+  };
+
+  auto read_sample = [&](PerfSample* out) -> bool {
+    if (!out) {
+      return false;
+    }
+    std::string response;
+    if (send_request(opts, "PERF\n", &response) != 0) {
+      return false;
+    }
+    json_u64_field(response, "push_calls", &out->push_calls);
+    json_u64_field(response, "wake_count", &out->wake_count);
+    json_u64_field(response, "flush_count", &out->flush_count);
+    json_u64_field(response, "total_flush_us", &out->total_flush_us);
+    json_u64_field(response, "max_flush_us", &out->max_flush_us);
+    json_u64_field(response, "last_flush_us", &out->last_flush_us);
+    json_u64_field(response, "last_pending_rows", &out->last_pending_rows);
+    json_u64_field(response, "max_pending_rows", &out->max_pending_rows);
+    json_u64_field(response, "inserted_count", &out->inserted_count);
+    json_u64_field(response, "error_count", &out->error_count);
+    return true;
+  };
+
+  PerfSample first{};
+  PerfSample last{};
+  if (!read_sample(&first)) {
+    return 1;
+  }
+  last = first;
+  for (int i = 1; i < samples; ++i) {
+    if (sleep_ms > 0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+    }
+    if (!read_sample(&last)) {
+      return 1;
+    }
+  }
+
+  auto delta = [](std::uint64_t before, std::uint64_t after) -> std::uint64_t {
+    return after >= before ? after - before : 0;
+  };
+
+  const std::uint64_t d_push = delta(first.push_calls, last.push_calls);
+  const std::uint64_t d_wake = delta(first.wake_count, last.wake_count);
+  const std::uint64_t d_flush = delta(first.flush_count, last.flush_count);
+  const std::uint64_t d_total_flush_us = delta(first.total_flush_us, last.total_flush_us);
+  const std::uint64_t d_inserted = delta(first.inserted_count, last.inserted_count);
+  const std::uint64_t d_errors = delta(first.error_count, last.error_count);
+  const std::uint64_t avg_flush_us = d_flush ? (d_total_flush_us / d_flush) : 0;
+
+  std::string out;
+  out.reserve(512);
+  out.append("{\"samples\":").append(std::to_string(samples));
+  out.append(",\"sleep_ms\":").append(std::to_string(sleep_ms));
+  out.append(",\"delta\":{");
+  out.append("\"push_calls\":").append(std::to_string(d_push));
+  out.append(",\"wake_count\":").append(std::to_string(d_wake));
+  out.append(",\"flush_count\":").append(std::to_string(d_flush));
+  out.append(",\"total_flush_us\":").append(std::to_string(d_total_flush_us));
+  out.append(",\"avg_flush_us\":").append(std::to_string(avg_flush_us));
+  out.append(",\"inserted_count\":").append(std::to_string(d_inserted));
+  out.append(",\"error_count\":").append(std::to_string(d_errors));
+  out.append("},\"last\":{");
+  out.append("\"max_flush_us\":").append(std::to_string(last.max_flush_us));
+  out.append(",\"last_flush_us\":").append(std::to_string(last.last_flush_us));
+  out.append(",\"last_pending_rows\":").append(std::to_string(last.last_pending_rows));
+  out.append(",\"max_pending_rows\":").append(std::to_string(last.max_pending_rows));
+  out.append("}}");
+  io::out.write(out);
+  io::out.write("\n");
   return 0;
 }
 
@@ -837,6 +975,9 @@ int main(int argc, char** argv) {
   }
   if (cmd == kCmdPerf) {
     return cmd_perf(opts);
+  }
+  if (cmd == kCmdPerfSmoke) {
+    return cmd_perf_smoke(opts, argc, argv, index);
   }
   if (cmd == kCmdApps) {
     trace::event("cli.apps", "list");

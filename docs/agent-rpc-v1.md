@@ -72,6 +72,8 @@ On failure:
 - `scroll` (`x`, `y`, `dy`)
 - `drag` (`x1`, `y1`, `x2`, `y2`)
 - `screenshot` (optional `path`, default `/tmp/seq_screenshot.png`)
+- `type_text` (`text`, optional `pid`)
+- `replace_typed` (`delete_count`, `text`, optional `pid`)
 
 ## CLI usage
 
@@ -79,6 +81,8 @@ On failure:
 seq rpc '{"op":"ping","request_id":"r1","run_id":"run1","tool_call_id":"t1"}'
 seq rpc '{"op":"open_app","request_id":"r2","args":{"name":"Safari"}}'
 seq rpc '{"op":"screenshot","request_id":"r3","args":{"path":"/tmp/agent.png"}}'
+seq rpc '{"op":"type_text","request_id":"r4","args":{"text":"hello from seq"}}'
+seq rpc '{"op":"replace_typed","request_id":"r5","args":{"delete_count":5,"text":"world"}}'
 ```
 
 For short-lived test runs on machines where ClickHouse writer shutdown can delay CLI exit, use:
@@ -92,3 +96,18 @@ SEQ_CH_PORT=1 seq rpc '{"op":"ping","request_id":"test"}'
 ```bash
 printf '{"op":"ping","request_id":"raw-1"}\n' | nc -U /tmp/seqd.sock
 ```
+
+## Everruns Bridge (Recommended)
+
+For Everruns `tool.call_requested` handling, use the shared bridge crate:
+
+- `api/rust/seq_everruns_bridge`
+- integration guide: `docs/everruns-flow-integration.md`
+
+It provides:
+- canonical `seq_*` client-side tool definitions
+- tool name normalization (`seq_open_app`, `seq.open_app`, `seq:open-app` -> `open_app`)
+- correlated request shaping (`request_id`, `run_id`, `tool_call_id`)
+- execution helpers on top of `seq_client::SeqClient`
+
+This keeps Flow/other runtimes aligned with one mapping implementation instead of duplicating ad-hoc tool dispatch logic.

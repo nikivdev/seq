@@ -36,6 +36,10 @@ Result mouse_scroll(double x, double y, int dy);
 Result mouse_drag(double x1, double y1, double x2, double y2);
 Result mouse_move(double x, double y);
 Result screenshot(const std::string& path);
+// Type UTF-8 text into the current focused app (or target pid when > 0).
+Result type_text(std::string_view text, pid_t pid = 0);
+// Delete `delete_count` characters, then type replacement text.
+Result replace_typed_text(int delete_count, std::string_view replacement, pid_t pid = 0);
 // Pre-warm the app cache with bundle IDs of all currently running apps.
 void prewarm_app_cache();
 }  // namespace actions

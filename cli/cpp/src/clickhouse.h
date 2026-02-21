@@ -143,6 +143,20 @@ struct AgentToolCallRow {
     uint32_t output_bytes = 0;
 };
 
+struct AsyncWriterPerfSnapshot {
+    uint64_t push_calls = 0;
+    uint64_t wake_count = 0;
+    uint64_t flush_count = 0;
+    uint64_t total_flush_us = 0;
+    uint64_t max_flush_us = 0;
+    uint64_t last_flush_us = 0;
+    uint64_t last_flush_rows = 0;
+    uint64_t last_pending_rows = 0;
+    uint64_t max_pending_rows = 0;
+    uint64_t error_count = 0;
+    uint64_t inserted_count = 0;
+};
+
 /// Synchronous ClickHouse client using the native binary protocol (port 9000).
 /// Wraps clickhouse-cpp with pimpl to hide the dependency from callers.
 class Client {
@@ -195,10 +209,14 @@ public:
     size_t PendingCount() const noexcept;
     uint64_t ErrorCount() const noexcept;
     uint64_t InsertedCount() const noexcept;
+    AsyncWriterPerfSnapshot PerfSnapshot() const noexcept;
 
 private:
     void FlushThread();
-    void DrainAndInsert(Client& client);
+    size_t DrainAndInsert(Client& client);
+    size_t PendingCountNoLock() const noexcept;
+    void UpdateMaxPendingNoLock() noexcept;
+    void RecomputeBatchReadyNoLock() noexcept;
 
     Config config_;
     mutable std::mutex mu_;
@@ -211,10 +229,40 @@ private:
     std::vector<AgentSessionRow> agent_session_pending_;
     std::vector<AgentTurnRow> agent_turn_pending_;
     std::vector<AgentToolCallRow> agent_tool_pending_;
+    size_t mem_head_ = 0;
+    size_t trace_head_ = 0;
+    size_t ctx_head_ = 0;
+    size_t superstep_head_ = 0;
+    size_t model_head_ = 0;
+    size_t tool_head_ = 0;
+    size_t agent_session_head_ = 0;
+    size_t agent_turn_head_ = 0;
+    size_t agent_tool_head_ = 0;
+    size_t pending_rows_ = 0;
+    std::vector<MemEventRow> mem_batch_;
+    std::vector<TraceEventRow> trace_batch_;
+    std::vector<ContextRow> ctx_batch_;
+    std::vector<SuperstepRow> superstep_batch_;
+    std::vector<ModelInvocationRow> model_batch_;
+    std::vector<ToolCallRow> tool_batch_;
+    std::vector<AgentSessionRow> agent_session_batch_;
+    std::vector<AgentTurnRow> agent_turn_batch_;
+    std::vector<AgentToolCallRow> agent_tool_batch_;
     std::condition_variable cv_;
+    bool batch_ready_ = false;
+    bool flush_requested_ = false;
     std::atomic<bool> stop_{false};
     std::atomic<uint64_t> error_count_{0};
     std::atomic<uint64_t> inserted_count_{0};
+    std::atomic<uint64_t> push_count_{0};
+    std::atomic<uint64_t> wake_count_{0};
+    std::atomic<uint64_t> flush_count_{0};
+    std::atomic<uint64_t> total_flush_us_{0};
+    std::atomic<uint64_t> max_flush_us_{0};
+    std::atomic<uint64_t> last_flush_us_{0};
+    std::atomic<uint64_t> last_flush_rows_{0};
+    std::atomic<uint64_t> last_pending_rows_{0};
+    std::atomic<uint64_t> max_pending_rows_{0};
     std::thread flush_thread_;
 };
 

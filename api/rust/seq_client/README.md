@@ -33,6 +33,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 See `docs/agent-rpc-v1.md` in this repo for RPC schema and operation list.
 
+For Everruns client-side tool execution, use `api/rust/seq_everruns_bridge` (it builds on this crate).
+
 ## Runnable example
 
 Run the end-to-end example:

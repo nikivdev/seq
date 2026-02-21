@@ -1,6 +1,7 @@
 #include "clickhouse_bridge.h"
 #include "clickhouse.h"
 
+#include <cstring>
 #include <optional>
 #include <string>
 
@@ -88,6 +89,25 @@ uint64_t seq_ch_error_count(const seq_ch_writer_t* w) {
 uint64_t seq_ch_inserted_count(const seq_ch_writer_t* w) {
     if (!w) return 0;
     return w->writer.InsertedCount();
+}
+
+void seq_ch_writer_perf_snapshot(const seq_ch_writer_t* w, seq_ch_writer_perf_snapshot_t* out) {
+    if (!out) return;
+    std::memset(out, 0, sizeof(*out));
+    if (!w) return;
+
+    auto perf = w->writer.PerfSnapshot();
+    out->push_calls = perf.push_calls;
+    out->wake_count = perf.wake_count;
+    out->flush_count = perf.flush_count;
+    out->total_flush_us = perf.total_flush_us;
+    out->max_flush_us = perf.max_flush_us;
+    out->last_flush_us = perf.last_flush_us;
+    out->last_flush_rows = perf.last_flush_rows;
+    out->last_pending_rows = perf.last_pending_rows;
+    out->max_pending_rows = perf.max_pending_rows;
+    out->error_count = perf.error_count;
+    out->inserted_count = perf.inserted_count;
 }
 
 void seq_ch_push_context(seq_ch_writer_t* w,

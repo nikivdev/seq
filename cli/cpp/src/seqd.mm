@@ -844,6 +844,8 @@ std::string perf_json() {
   out.append(",\"nvcsw\":").append(std::to_string((long long)ru.ru_nvcsw));
   out.append(",\"nivcsw\":").append(std::to_string((long long)ru.ru_nivcsw));
   out.append("}");
+  out.append(",\"trace_writer\":");
+  out.append(trace::writer_perf_json());
   out.append("}");
   return out;
 }
@@ -1426,6 +1428,56 @@ RpcDispatchResult dispatch_rpc_request(const Options& opts,
       rpc.ok = r.ok;
       if (r.ok) {
         rpc.result_json = json_obj_single_string("path", path);
+      } else {
+        rpc.error = r.error;
+      }
+      return rpc;
+    }
+
+    if (rpc.op == "type_text") {
+      std::string text = nsstring_to_std(rpc_arg(req, @"text"));
+      int pid_arg = 0;
+      if (!nsnumber_to_int(rpc_arg(req, @"pid"), &pid_arg)) {
+        pid_arg = 0;
+      }
+      pid_t pid = pid_arg > 0 ? (pid_t)pid_arg : 0;
+      rpc.subject = text.size() > 64 ? text.substr(0, 64) : text;
+      actions::Result r = actions::type_text(text, pid);
+      rpc.ok = r.ok;
+      if (r.ok) {
+        rpc.result_json = "{\"status\":\"ok\"}";
+      } else {
+        rpc.error = r.error;
+      }
+      return rpc;
+    }
+
+    if (rpc.op == "replace_typed") {
+      int delete_count = 0;
+      if (!nsnumber_to_int(rpc_arg(req, @"delete_count"), &delete_count)) {
+        if (!nsnumber_to_int(rpc_arg(req, @"delete"), &delete_count)) {
+          rpc.error = "missing_delete_count";
+          return rpc;
+        }
+      }
+      if (delete_count < 0 || delete_count > 4096) {
+        rpc.error = "invalid_delete_count";
+        return rpc;
+      }
+      std::string text = nsstring_to_std(rpc_arg(req, @"text"));
+      if (text.empty()) {
+        text = nsstring_to_std(rpc_arg(req, @"replacement"));
+      }
+      int pid_arg = 0;
+      if (!nsnumber_to_int(rpc_arg(req, @"pid"), &pid_arg)) {
+        pid_arg = 0;
+      }
+      pid_t pid = pid_arg > 0 ? (pid_t)pid_arg : 0;
+      rpc.subject = std::to_string(delete_count);
+      actions::Result r = actions::replace_typed_text(delete_count, text, pid);
+      rpc.ok = r.ok;
+      if (r.ok) {
+        rpc.result_json = "{\"status\":\"ok\"}";
       } else {
         rpc.error = r.error;
       }

@@ -42,6 +42,302 @@ command = "sh ./cli/cpp/run.sh deploy"
 description = "Build seq and restart seqd"
 
 [[tasks]]
+name = "ch-mode"
+command = "python3 tools/ch_mode.py \"$@\""
+description = "Switch seq ClickHouse mode quickly: status|native|mirror|file|off."
+
+[[tasks]]
+name = "ch-mode-status"
+command = "python3 tools/ch_mode.py status"
+description = "Show current ClickHouse mode/env values from Flow env store."
+
+[[tasks]]
+name = "ch-mode-native"
+command = "python3 tools/ch_mode.py native"
+description = "Set SEQ_CH_MODE=native (native ClickHouse writer only)."
+
+[[tasks]]
+name = "ch-mode-mirror"
+command = "python3 tools/ch_mode.py mirror"
+description = "Set SEQ_CH_MODE=mirror (native writer + local JSON spool)."
+
+[[tasks]]
+name = "ch-mode-file"
+command = "python3 tools/ch_mode.py file"
+description = "Set SEQ_CH_MODE=file (local JSON spool only)."
+
+[[tasks]]
+name = "ch-mode-off"
+command = "python3 tools/ch_mode.py off"
+description = "Set SEQ_CH_MODE=off (disable ClickHouse emission)."
+
+[[tasks]]
+name = "rl-capture-on"
+command = "sh -lc \"f ch-mode file && f env set SEQ_CH_MEM_PATH=${SEQ_CH_MEM_PATH:-$HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl} && f env set SEQ_CH_LOG_PATH=${SEQ_CH_LOG_PATH:-$HOME/repos/ClickHouse/ClickHouse/user_files/seq_trace.jsonl} && f ch-mode-status\""
+description = "Enable low-latency local RL trace capture (file mode + local spool paths)."
+
+[[tasks]]
+name = "rl-signal-tail"
+command = "sh -lc \"tail -f ${SEQ_CH_MEM_PATH:-$HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl} | python3 tools/rl_signal_filter.py\""
+description = "Follow only high-signal seq events for RL (stdin filter over seq_mem.jsonl)."
+
+[[tasks]]
+name = "rl-signal-summary"
+command = "python3 tools/rl_signal_filter.py --file ${SEQ_CH_MEM_PATH:-$HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl} --summary --last ${LAST:-5000}"
+description = "Summarize high-signal event density from recent seq_mem rows."
+
+[[tasks]]
+name = "rl-signal-summary-agent-qa"
+command = "python3 tools/rl_signal_filter.py --file ${SEQ_CH_MEM_PATH:-$HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl} --summary --include-agent-qa --last ${LAST:-5000}"
+description = "Summarize router + agent.qa high-signal events from recent seq_mem rows."
+
+[[tasks]]
+name = "router-signal-emit-sample"
+command = "python3 tools/router_signal_emit_sample.py"
+description = "Emit sample flow.router decision/outcome rows into seq_mem for pipeline smoke tests."
+
+[[tasks]]
+name = "router-signal-export"
+command = "python3 tools/router_signal_export.py --seq-mem ${SEQ_CH_MEM_PATH:-$HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl} --output-dir ${ROUTER_SIGNAL_OUT:-$HOME/repos/laude-institute/harbor/data/router_signal/latest} --max-age-hours ${ROUTER_SIGNAL_MAX_AGE_HOURS:-168}"
+description = "Export joined flow.router decision/outcome dataset (train/val/test + summary)."
+
+[[tasks]]
+name = "router-signal-audit"
+command = "python3 tools/router_signal_audit.py --summary ${ROUTER_SIGNAL_SUMMARY:-$HOME/repos/laude-institute/harbor/data/router_signal/latest/summary.json} --min-decisions ${ROUTER_SIGNAL_MIN_DECISIONS:-500} --min-joined ${ROUTER_SIGNAL_MIN_JOINED:-400} --min-link-rate ${ROUTER_SIGNAL_MIN_LINK_RATE:-0.80} --max-task-dominance ${ROUTER_SIGNAL_MAX_TASK_DOMINANCE:-0.55} --min-overrides ${ROUTER_SIGNAL_MIN_OVERRIDES:-20} --min-failureish ${ROUTER_SIGNAL_MIN_FAILUREISH:-60}"
+description = "Gate router signal quality before RL training (volume/linkage/balance/overrides)."
+
+[[tasks]]
+name = "kar-signal-capture-preflight"
+command = "python3 tools/kar_signal_capture.py preflight"
+description = "Check Kar RL signal capture prerequisites."
+
+[[tasks]]
+name = "kar-signal-capture-on"
+command = "python3 tools/kar_signal_capture.py start"
+description = "Start Kar RL signal capture daemon (intent/outcome/override derivation)."
+
+[[tasks]]
+name = "kar-signal-capture-off"
+command = "python3 tools/kar_signal_capture.py stop"
+description = "Stop Kar RL signal capture daemon."
+
+[[tasks]]
+name = "kar-signal-capture-status"
+command = "python3 tools/kar_signal_capture.py status"
+description = "Show Kar RL signal capture daemon status."
+
+[[tasks]]
+name = "kar-signal-capture-once"
+command = "python3 tools/kar_signal_capture.py once"
+description = "Run one Kar signal derivation pass from current seq_mem offset."
+
+[[tasks]]
+name = "kar-signal-backfill"
+command = "python3 tools/kar_signal_capture.py once --reset-state"
+description = "Backfill Kar signal derivation from start of current seq_mem file."
+
+[[tasks]]
+name = "kar-signal-capture-logs"
+command = "sh -lc \"tail -n 120 -f ${SEQ_KAR_SIGNAL_LOG:-$HOME/code/seq/cli/cpp/out/logs/kar_signal_capture.log}\""
+description = "Tail Kar signal capture daemon logs."
+
+[[tasks]]
+name = "kar-signal-export"
+command = "python3 tools/kar_signal_export.py --seq-mem ${SEQ_CH_MEM_PATH:-$HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl} --output-dir ${KAR_SIGNAL_OUT:-$HOME/repos/laude-institute/harbor/data/kar_signal/latest} --max-age-hours ${KAR_SIGNAL_MAX_AGE_HOURS:-168}"
+description = "Export Kar intent/outcome/override dataset (train/val/test + summary)."
+
+[[tasks]]
+name = "kar-signal-export-all"
+command = "python3 tools/kar_signal_export.py --seq-mem ${SEQ_CH_MEM_PATH:-$HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl} --output-dir ${KAR_SIGNAL_OUT:-$HOME/repos/laude-institute/harbor/data/kar_signal/latest} --max-age-hours 999999"
+description = "Export Kar signal dataset using full available seq_mem history."
+
+[[tasks]]
+name = "kar-signal-audit"
+command = "python3 tools/kar_signal_audit.py --summary ${KAR_SIGNAL_SUMMARY:-$HOME/repos/laude-institute/harbor/data/kar_signal/latest/summary.json} --min-intents ${KAR_SIGNAL_MIN_INTENTS:-300} --min-joined ${KAR_SIGNAL_MIN_JOINED:-250} --min-link-rate ${KAR_SIGNAL_MIN_LINK_RATE:-0.80} --max-action-dominance ${KAR_SIGNAL_MAX_ACTION_DOMINANCE:-0.65} --min-overrides ${KAR_SIGNAL_MIN_OVERRIDES:-10} --min-failureish ${KAR_SIGNAL_MIN_FAILUREISH:-30}"
+description = "Gate Kar signal quality before RL tuning."
+
+[[tasks]]
+name = "seq-signal-watchdog-preflight"
+command = "python3 tools/seq_signal_watchdog.py preflight"
+description = "Check capture watchdog prerequisites."
+
+[[tasks]]
+name = "seq-signal-watchdog-on"
+command = "python3 tools/seq_signal_watchdog.py start"
+description = "Start periodic data-flow watchdog (health + validity checks)."
+
+[[tasks]]
+name = "seq-signal-watchdog-off"
+command = "python3 tools/seq_signal_watchdog.py stop"
+description = "Stop data-flow watchdog daemon."
+
+[[tasks]]
+name = "seq-signal-watchdog-status"
+command = "python3 tools/seq_signal_watchdog.py status"
+description = "Show data-flow watchdog daemon status."
+
+[[tasks]]
+name = "seq-signal-watchdog-once"
+command = "python3 tools/seq_signal_watchdog.py once"
+description = "Run one health/validity check now."
+
+[[tasks]]
+name = "seq-signal-watchdog-logs"
+command = "sh -lc \"tail -n 120 -f ${SEQ_SIGNAL_WATCHDOG_LOG:-$HOME/code/seq/cli/cpp/out/logs/signal_watchdog.log}\""
+description = "Tail data-flow watchdog logs."
+
+[[tasks]]
+name = "seq-signal-watchdog-report"
+command = "sh -lc \"cat ${SEQ_SIGNAL_WATCHDOG_REPORT:-$HOME/.local/state/seq/signal_watchdog_report.json}\""
+description = "Show latest watchdog report JSON."
+
+[[tasks]]
+name = "seq-health"
+command = "python3 tools/seq_health.py --lookback-hours ${SEQ_HEALTH_LOOKBACK_HOURS:-24} --tail-bytes ${SEQ_HEALTH_TAIL_BYTES:-20971520} --min-next-type ${SEQ_HEALTH_MIN_NEXT_TYPE:-1} --min-kar-intent ${SEQ_HEALTH_MIN_KAR_INTENT:-0} --min-kar-outcome ${SEQ_HEALTH_MIN_KAR_OUTCOME:-0} --min-agent-qa ${SEQ_HEALTH_MIN_AGENT_QA:-1} --min-kar-link-rate ${SEQ_HEALTH_MIN_KAR_LINK_RATE:-0.75} --watchdog-max-age-minutes ${SEQ_HEALTH_WATCHDOG_MAX_AGE_MINUTES:-30} --launchd-label ${SEQD_LAUNCHD_LABEL:-dev.nikiv.seqd} --repair-seqd --repair-wait-s ${SEQ_HEALTH_REPAIR_WAIT_S:-1.0} --report-out ${SEQ_HEALTH_REPORT:-$HOME/.local/state/seq/seq_health_report.json}"
+description = "Strict end-to-end seq capture health check for RL training readiness."
+
+[[tasks]]
+name = "seq-health-relaxed"
+command = "python3 tools/seq_health.py --no-strict --lookback-hours ${SEQ_HEALTH_LOOKBACK_HOURS:-24} --tail-bytes ${SEQ_HEALTH_TAIL_BYTES:-20971520} --min-next-type ${SEQ_HEALTH_MIN_NEXT_TYPE:-1} --min-kar-intent ${SEQ_HEALTH_MIN_KAR_INTENT:-0} --min-kar-outcome ${SEQ_HEALTH_MIN_KAR_OUTCOME:-0} --min-agent-qa ${SEQ_HEALTH_MIN_AGENT_QA:-1} --min-kar-link-rate ${SEQ_HEALTH_MIN_KAR_LINK_RATE:-0.75} --watchdog-max-age-minutes ${SEQ_HEALTH_WATCHDOG_MAX_AGE_MINUTES:-30} --launchd-label ${SEQD_LAUNCHD_LABEL:-dev.nikiv.seqd} --repair-seqd --repair-wait-s ${SEQ_HEALTH_REPAIR_WAIT_S:-1.0} --report-out ${SEQ_HEALTH_REPORT:-$HOME/.local/state/seq/seq_health_report.json}"
+description = "Health check with signal coverage gates downgraded to warnings."
+
+[[tasks]]
+name = "seq-health-report"
+command = "sh -lc \"cat ${SEQ_HEALTH_REPORT:-$HOME/.local/state/seq/seq_health_report.json}\""
+description = "Show latest seq-health report JSON."
+
+
+[[tasks]]
+name = "agent-qa-capture-on"
+command = "python3 tools/agent_qa_ingest.py start"
+description = "Start always-on Claude/Codex Q/A capture into seq_mem (background daemon)."
+
+[[tasks]]
+name = "agent-qa-capture-on-backfill"
+command = "python3 tools/agent_qa_ingest.py start --backfill --reset-state"
+description = "Start Q/A capture and backfill historical session logs once."
+
+[[tasks]]
+name = "agent-qa-capture-off"
+command = "python3 tools/agent_qa_ingest.py stop"
+description = "Stop background Claude/Codex Q/A capture daemon."
+
+[[tasks]]
+name = "agent-qa-capture-status"
+command = "python3 tools/agent_qa_ingest.py status"
+description = "Show background Q/A capture daemon status."
+
+[[tasks]]
+name = "agent-qa-capture-once"
+command = "python3 tools/agent_qa_ingest.py once"
+description = "Run one Q/A ingest scan pass (no daemon)."
+
+[[tasks]]
+name = "agent-qa-capture-logs"
+command = "sh -lc \"tail -n 120 -f ${SEQ_AGENT_QA_LOG:-$HOME/code/seq/cli/cpp/out/logs/agent_qa_ingest.log}\""
+description = "Tail Q/A capture daemon logs."
+
+[[tasks]]
+name = "next-type-capture-setup"
+command = "sh -lc \"set -e; python3 tools/next_type_key_capture_daemon.py preflight; python3 tools/next_type_key_capture_daemon.py start; python3 tools/next_type_key_capture_daemon.py status\""
+description = "Preflight + start always-on key capture (cgeventtap -> seq mem)."
+
+[[tasks]]
+name = "next-type-capture-preflight"
+command = "python3 tools/next_type_key_capture_daemon.py preflight"
+description = "Check key capture prerequisites (tap binary + paths + ingest helper)."
+
+[[tasks]]
+name = "next-type-capture-on"
+command = "python3 tools/next_type_key_capture_daemon.py start"
+description = "Start background key capture daemon."
+
+[[tasks]]
+name = "next-type-capture-off"
+command = "python3 tools/next_type_key_capture_daemon.py stop"
+description = "Stop background key capture daemon."
+
+[[tasks]]
+name = "next-type-capture-status"
+command = "python3 tools/next_type_key_capture_daemon.py status"
+description = "Show key capture daemon status."
+
+[[tasks]]
+name = "next-type-capture-once"
+command = "python3 tools/next_type_key_capture_daemon.py once"
+description = "Process current key tap log from saved offset and exit."
+
+[[tasks]]
+name = "next-type-capture-logs"
+command = "sh -lc \"tail -n 120 -f ${SEQ_NEXT_TYPE_LOG:-$HOME/code/seq/cli/cpp/out/logs/next_type_key_capture.log}\""
+description = "Tail key capture daemon logs."
+
+[[tasks]]
+name = "seq-harbor-preflight"
+command = "sh -lc \"set -e; python3 tools/next_type_key_capture_daemon.py preflight; python3 tools/kar_signal_capture.py preflight; python3 tools/seq_signal_watchdog.py preflight; python3 tools/ch_mode.py status; python3 tools/agent_qa_ingest.py status || true\""
+description = "Preflight high-signal capture stack (key capture + Kar signals + watchdog + seq mode + agent Q/A)."
+
+[[tasks]]
+name = "seq-harbor-install"
+command = "sh -lc \"set -e; python3 tools/ch_mode.py file; python3 tools/next_type_key_capture_daemon.py preflight; python3 tools/seq_capture_launchd.py install --service all\""
+description = "Prepare seq for low-latency RL capture and install launchd supervision for capture daemons."
+
+[[tasks]]
+name = "seq-harbor-run"
+command = "sh -lc \"set -e; python3 tools/seq_capture_launchd.py restart --service all; python3 tools/seq_capture_launchd.py status --service all\""
+description = "Start/restart supervised continuous capture via launchd (keystrokes + Kar + agent Q/A + watchdog)."
+
+[[tasks]]
+name = "seq-harbor-stop"
+command = "sh -lc \"set -e; python3 tools/seq_capture_launchd.py stop --service all\""
+description = "Stop launchd-supervised capture daemons."
+
+[[tasks]]
+name = "seq-harbor-status"
+command = "sh -lc \"python3 tools/seq_capture_launchd.py status --service all || true; echo '---'; python3 tools/next_type_key_capture_daemon.py status || true; echo '---'; python3 tools/kar_signal_capture.py status || true; echo '---'; python3 tools/agent_qa_ingest.py status || true; echo '---'; python3 tools/seq_signal_watchdog.py status || true; echo '---'; python3 tools/ch_mode.py status\""
+description = "Show launchd + daemon + ClickHouse capture status."
+
+[[tasks]]
+name = "seq-harbor-logs"
+command = "sh -lc \"mkdir -p $HOME/code/seq/cli/cpp/out/logs; touch $HOME/code/seq/cli/cpp/out/logs/next_type.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/kar_signal.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/agent_qa.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/watchdog.launchd.stderr.log; tail -n 120 -f $HOME/code/seq/cli/cpp/out/logs/next_type.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/kar_signal.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/agent_qa.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/watchdog.launchd.stderr.log\""
+description = "Tail launchd capture logs (next_type + Kar + agent Q/A + watchdog)."
+
+[[tasks]]
+name = "seq-capture-launchd-install"
+command = "python3 tools/seq_capture_launchd.py install --service all"
+description = "Install launchd supervision for all seq capture daemons."
+
+[[tasks]]
+name = "seq-capture-launchd-restart"
+command = "python3 tools/seq_capture_launchd.py restart --service all"
+description = "Restart launchd-supervised seq capture daemons."
+
+[[tasks]]
+name = "seq-capture-launchd-stop"
+command = "python3 tools/seq_capture_launchd.py stop --service all"
+description = "Stop launchd-supervised seq capture daemons."
+
+[[tasks]]
+name = "seq-capture-launchd-status"
+command = "python3 tools/seq_capture_launchd.py status --service all"
+description = "Show launchd status for all capture daemons."
+
+[[tasks]]
+name = "seq-capture-launchd-uninstall"
+command = "python3 tools/seq_capture_launchd.py uninstall --service all"
+description = "Remove launchd supervision plists for capture daemons."
+
+[[tasks]]
+name = "seq-checkpoints-list"
+command = "bash -lc 'ls -1dt ${SEQ_SIGNAL_WATCHDOG_SNAPSHOT_DIR:-$HOME/.local/state/seq/checkpoints}/checkpoint_* 2>/dev/null | grep \"^/\" | head -n ${N:-20}'"
+description = "List recent watchdog capture checkpoints."
+
+[[tasks]]
+name = "seq-checkpoints-latest"
+command = "bash -lc 'latest=$(ls -1dt ${SEQ_SIGNAL_WATCHDOG_SNAPSHOT_DIR:-$HOME/.local/state/seq/checkpoints}/checkpoint_* 2>/dev/null | grep \"^/\" | head -n 1); [ -n \"$latest\" ] && [ -f \"$latest/manifest.json\" ] && cat \"$latest/manifest.json\" || echo \"No checkpoints found.\"'"
+description = "Show manifest for the latest watchdog checkpoint."
+
+[[tasks]]
 name = "app-state"
 command = "sh -lc \"/Users/nikiv/code/seq/cli/cpp/out/bin/seq app-state\""
 description = "Dump seqd cached frontmost/previous app (avoid PATH conflict with /usr/bin/seq)"
@@ -271,3 +567,113 @@ description = "Show inferred watchers/dependencies for a file path (e.g. kar con
 name = "mac-kg-stats"
 command = "python3 tools/mac_knowledge.py stats \"$@\""
 description = "Show mac knowledge DB stats."
+
+[storage]
+provider = "myflow.sh"
+
+[[storage.envs]]
+name = "local"
+description = "Everruns->Maple dual-ingest configuration for seq bridge"
+variables = [
+  { key = "SEQ_CH_MODE", default = "file" },
+  { key = "SEQ_CH_HOST", default = "127.0.0.1" },
+  { key = "SEQ_CH_PORT", default = "9000" },
+  { key = "SEQ_CH_DATABASE", default = "seq" },
+  { key = "SEQ_CH_MEM_PATH" },
+  { key = "SEQ_CH_LOG_PATH" },
+  { key = "SEQ_AGENT_QA_CLAUDE_DIR", default = "~/.claude/projects" },
+  { key = "SEQ_AGENT_QA_CODEX_DIR", default = "~/.codex/sessions" },
+  { key = "SEQ_AGENT_QA_STATE", default = "~/.local/state/seq/agent_qa_ingest_state.json" },
+  { key = "SEQ_AGENT_QA_PIDFILE", default = "~/.local/state/seq/agent_qa_ingest.pid" },
+  { key = "SEQ_AGENT_QA_LOG", default = "~/code/seq/cli/cpp/out/logs/agent_qa_ingest.log" },
+  { key = "SEQ_AGENT_QA_ZVEC_JSONL", default = "~/repos/alibaba/zvec/data/agent_qa.jsonl" },
+  { key = "SEQ_AGENT_QA_POLL_SECONDS", default = "1.0" },
+  { key = "SEQ_AGENT_QA_RESCAN_SECONDS", default = "15.0" },
+  { key = "SEQ_AGENT_QA_FLUSH_EVERY", default = "10" },
+  { key = "SEQ_AGENT_QA_MAX_TEXT_CHARS", default = "8000" },
+  { key = "SEQ_AGENT_QA_INCLUDE_TEXT", default = "true" },
+  { key = "SEQ_NEXT_TYPE_TAP_LOG", default = "/tmp/cgeventtap.log" },
+  { key = "SEQ_NEXT_TYPE_TAP_BIN", default = "~/repos/pqrs-org/osx-event-observer-examples/cgeventtap-example/build_xcode/Release/cgeventtap-example.app/Contents/MacOS/cgeventtap-example" },
+  { key = "SEQ_NEXT_TYPE_OUT", default = "~/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl" },
+  { key = "SEQ_NEXT_TYPE_STATE", default = "~/.local/state/seq/next_type_key_capture_state.json" },
+  { key = "SEQ_NEXT_TYPE_PIDFILE", default = "~/.local/state/seq/next_type_key_capture.pid" },
+  { key = "SEQ_NEXT_TYPE_LOG", default = "~/code/seq/cli/cpp/out/logs/next_type_key_capture.log" },
+  { key = "SEQ_NEXT_TYPE_POLL_SECONDS", default = "0.25" },
+  { key = "SEQ_NEXT_TYPE_BATCH_SIZE", default = "64" },
+  { key = "SEQ_NEXT_TYPE_FLUSH_MS", default = "1500" },
+  { key = "SEQ_NEXT_TYPE_SOURCE", default = "cgeventtap" },
+  { key = "SEQ_NEXT_TYPE_LAUNCH_TAP", default = "true" },
+  { key = "SEQ_NEXT_TYPE_SESSION_ID", default = "" },
+  { key = "SEQ_NEXT_TYPE_PROJECT_PATH", default = "" },
+  { key = "SEQ_KAR_SIGNAL_STATE", default = "~/.local/state/seq/kar_signal_state.json" },
+  { key = "SEQ_KAR_SIGNAL_PIDFILE", default = "~/.local/state/seq/kar_signal.pid" },
+  { key = "SEQ_KAR_SIGNAL_LOG", default = "~/code/seq/cli/cpp/out/logs/kar_signal_capture.log" },
+  { key = "SEQ_KAR_SIGNAL_POLL_SECONDS", default = "0.5" },
+  { key = "SEQ_KAR_SIGNAL_OUTCOME_WINDOW_MS", default = "2200" },
+  { key = "SEQ_KAR_SIGNAL_OVERRIDE_WINDOW_MS", default = "1200" },
+  { key = "SEQ_SIGNAL_WATCHDOG_STATE", default = "~/.local/state/seq/signal_watchdog_state.json" },
+  { key = "SEQ_SIGNAL_WATCHDOG_PIDFILE", default = "~/.local/state/seq/signal_watchdog.pid" },
+  { key = "SEQ_SIGNAL_WATCHDOG_LOG", default = "~/code/seq/cli/cpp/out/logs/signal_watchdog.log" },
+  { key = "SEQ_SIGNAL_WATCHDOG_REPORT", default = "~/.local/state/seq/signal_watchdog_report.json" },
+  { key = "SEQ_SIGNAL_WATCHDOG_INTERVAL_SECONDS", default = "900" },
+  { key = "SEQ_SIGNAL_WATCHDOG_LOOKBACK_HOURS", default = "24" },
+  { key = "SEQ_SIGNAL_WATCHDOG_TAIL_BYTES", default = "20971520" },
+  { key = "SEQ_SIGNAL_WATCHDOG_MIN_KAR_INTENTS", default = "20" },
+  { key = "SEQ_SIGNAL_WATCHDOG_MIN_KAR_LINK_RATE", default = "0.75" },
+  { key = "SEQ_SIGNAL_WATCHDOG_EMIT_EVENT", default = "true" },
+  { key = "SEQ_SIGNAL_WATCHDOG_AUTO_REMEDIATE", default = "true" },
+  { key = "SEQ_SIGNAL_WATCHDOG_REMEDIATE_WITH_LAUNCHD", default = "true" },
+  { key = "SEQ_SIGNAL_WATCHDOG_REMEDIATE_COOLDOWN_SECONDS", default = "120" },
+  { key = "SEQ_SIGNAL_WATCHDOG_LABEL_NEXT_TYPE", default = "dev.nikiv.seq-capture.next-type" },
+  { key = "SEQ_SIGNAL_WATCHDOG_LABEL_KAR_SIGNAL", default = "dev.nikiv.seq-capture.kar-signal" },
+  { key = "SEQ_SIGNAL_WATCHDOG_LABEL_AGENT_QA", default = "dev.nikiv.seq-capture.agent-qa" },
+  { key = "SEQ_SIGNAL_WATCHDOG_SNAPSHOT_ENABLED", default = "true" },
+  { key = "SEQ_SIGNAL_WATCHDOG_SNAPSHOT_DIR", default = "~/.local/state/seq/checkpoints" },
+  { key = "SEQ_SIGNAL_WATCHDOG_SNAPSHOT_INTERVAL_MINUTES", default = "30" },
+  { key = "SEQ_SIGNAL_WATCHDOG_SNAPSHOT_KEEP", default = "48" },
+  { key = "SEQ_SIGNAL_WATCHDOG_SNAPSHOT_TAIL_BYTES", default = "1048576" },
+  { key = "SEQ_SIGNAL_WATCHDOG_SEQ_TRACE", default = "~/repos/ClickHouse/ClickHouse/user_files/seq_trace.jsonl" },
+  { key = "SEQ_CAPTURE_LAUNCHD_LABEL_PREFIX", default = "dev.nikiv.seq-capture" },
+  { key = "SEQ_HEALTH_REPORT", default = "~/.local/state/seq/seq_health_report.json" },
+  { key = "SEQ_HEALTH_LOOKBACK_HOURS", default = "24" },
+  { key = "SEQ_HEALTH_TAIL_BYTES", default = "20971520" },
+  { key = "SEQ_HEALTH_MIN_NEXT_TYPE", default = "1" },
+  { key = "SEQ_HEALTH_MIN_KAR_INTENT", default = "0" },
+  { key = "SEQ_HEALTH_MIN_KAR_OUTCOME", default = "0" },
+  { key = "SEQ_HEALTH_MIN_AGENT_QA", default = "1" },
+  { key = "SEQ_HEALTH_MIN_KAR_LINK_RATE", default = "0.75" },
+  { key = "SEQ_HEALTH_WATCHDOG_MAX_AGE_MINUTES", default = "30" },
+  { key = "SEQ_HEALTH_REPAIR_WAIT_S", default = "1.0" },
+  { key = "SEQD_LAUNCHD_LABEL", default = "dev.nikiv.seqd" },
+  { key = "KAR_SIGNAL_OUT", default = "~/repos/laude-institute/harbor/data/kar_signal/latest" },
+  { key = "KAR_SIGNAL_SUMMARY", default = "~/repos/laude-institute/harbor/data/kar_signal/latest/summary.json" },
+  { key = "KAR_SIGNAL_MAX_AGE_HOURS", default = "168" },
+  { key = "KAR_SIGNAL_MIN_INTENTS", default = "300" },
+  { key = "KAR_SIGNAL_MIN_JOINED", default = "250" },
+  { key = "KAR_SIGNAL_MIN_LINK_RATE", default = "0.80" },
+  { key = "KAR_SIGNAL_MAX_ACTION_DOMINANCE", default = "0.65" },
+  { key = "KAR_SIGNAL_MIN_OVERRIDES", default = "10" },
+  { key = "KAR_SIGNAL_MIN_FAILUREISH", default = "30" },
+  { key = "ROUTER_SIGNAL_OUT", default = "~/repos/laude-institute/harbor/data/router_signal/latest" },
+  { key = "ROUTER_SIGNAL_SUMMARY", default = "~/repos/laude-institute/harbor/data/router_signal/latest/summary.json" },
+  { key = "ROUTER_SIGNAL_MAX_AGE_HOURS", default = "168" },
+  { key = "ROUTER_SIGNAL_MIN_DECISIONS", default = "500" },
+  { key = "ROUTER_SIGNAL_MIN_JOINED", default = "400" },
+  { key = "ROUTER_SIGNAL_MIN_LINK_RATE", default = "0.80" },
+  { key = "ROUTER_SIGNAL_MAX_TASK_DOMINANCE", default = "0.55" },
+  { key = "ROUTER_SIGNAL_MIN_OVERRIDES", default = "20" },
+  { key = "ROUTER_SIGNAL_MIN_FAILUREISH", default = "60" },
+  { key = "SEQ_EVERRUNS_MAPLE_LOCAL_ENDPOINT", default = "http://ingest.maple.localhost/v1/traces" },
+  { key = "SEQ_EVERRUNS_MAPLE_LOCAL_INGEST_KEY", default = "" },
+  { key = "SEQ_EVERRUNS_MAPLE_HOSTED_ENDPOINT", default = "https://ingest.1focus.ai/v1/traces" },
+  { key = "SEQ_EVERRUNS_MAPLE_HOSTED_INGEST_KEY", default = "" },
+  { key = "SEQ_EVERRUNS_MAPLE_SERVICE_NAME", default = "seq-everruns-bridge" },
+  { key = "SEQ_EVERRUNS_MAPLE_SERVICE_VERSION", default = "" },
+  { key = "SEQ_EVERRUNS_MAPLE_ENV", default = "local" },
+  { key = "SEQ_EVERRUNS_MAPLE_SCOPE_NAME", default = "seq_everruns_bridge" },
+  { key = "SEQ_EVERRUNS_MAPLE_QUEUE_CAPACITY", default = "4096" },
+  { key = "SEQ_EVERRUNS_MAPLE_MAX_BATCH_SIZE", default = "128" },
+  { key = "SEQ_EVERRUNS_MAPLE_FLUSH_INTERVAL_MS", default = "50" },
+  { key = "SEQ_EVERRUNS_MAPLE_CONNECT_TIMEOUT_MS", default = "400" },
+  { key = "SEQ_EVERRUNS_MAPLE_REQUEST_TIMEOUT_MS", default = "800" },
+]

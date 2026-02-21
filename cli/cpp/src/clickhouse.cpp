@@ -1,8 +1,24 @@
 #include "clickhouse.h"
 
 #include <clickhouse/client.h>
+#include <algorithm>
+#include <chrono>
+#include <iterator>
 
 namespace seq::ch {
+
+namespace {
+void store_max(std::atomic<uint64_t>& target, uint64_t value) {
+    uint64_t current = target.load(std::memory_order_relaxed);
+    while (value > current && !target.compare_exchange_weak(current, value, std::memory_order_relaxed)) {
+    }
+}
+
+template <typename T>
+size_t pending_size(const std::vector<T>& pending, size_t head) {
+    return pending.size() - head;
+}
+} // namespace
 
 // ─── Client (pimpl) ─────────────────────────────────────────────────────────
 
@@ -446,6 +462,25 @@ void Client::Execute(std::string_view sql) {
 
 AsyncWriter::AsyncWriter(Config config)
     : config_(std::move(config)) {
+    const size_t reserve_count = static_cast<size_t>(config_.batch_size);
+    mem_pending_.reserve(reserve_count);
+    trace_pending_.reserve(reserve_count);
+    ctx_pending_.reserve(reserve_count);
+    superstep_pending_.reserve(reserve_count);
+    model_pending_.reserve(reserve_count);
+    tool_pending_.reserve(reserve_count);
+    agent_session_pending_.reserve(reserve_count);
+    agent_turn_pending_.reserve(reserve_count);
+    agent_tool_pending_.reserve(reserve_count);
+    mem_batch_.reserve(reserve_count);
+    trace_batch_.reserve(reserve_count);
+    ctx_batch_.reserve(reserve_count);
+    superstep_batch_.reserve(reserve_count);
+    model_batch_.reserve(reserve_count);
+    tool_batch_.reserve(reserve_count);
+    agent_session_batch_.reserve(reserve_count);
+    agent_turn_batch_.reserve(reserve_count);
+    agent_tool_batch_.reserve(reserve_count);
     flush_thread_ = std::thread([this] { FlushThread(); });
 }
 
@@ -461,7 +496,11 @@ void AsyncWriter::PushMemEvent(MemEventRow row) noexcept {
     try {
         std::lock_guard lock(mu_);
         mem_pending_.push_back(std::move(row));
-        if (mem_pending_.size() >= config_.batch_size) {
+        ++pending_rows_;
+        push_count_.fetch_add(1, std::memory_order_relaxed);
+        UpdateMaxPendingNoLock();
+        if (pending_size(mem_pending_, mem_head_) == config_.batch_size) {
+            batch_ready_ = true;
             cv_.notify_one();
         }
     } catch (...) {
@@ -473,7 +512,11 @@ void AsyncWriter::PushTraceEvent(TraceEventRow row) noexcept {
     try {
         std::lock_guard lock(mu_);
         trace_pending_.push_back(std::move(row));
-        if (trace_pending_.size() >= config_.batch_size) {
+        ++pending_rows_;
+        push_count_.fetch_add(1, std::memory_order_relaxed);
+        UpdateMaxPendingNoLock();
+        if (pending_size(trace_pending_, trace_head_) == config_.batch_size) {
+            batch_ready_ = true;
             cv_.notify_one();
         }
     } catch (...) {
@@ -485,7 +528,11 @@ void AsyncWriter::PushContext(ContextRow row) noexcept {
     try {
         std::lock_guard lock(mu_);
         ctx_pending_.push_back(std::move(row));
-        if (ctx_pending_.size() >= config_.batch_size) {
+        ++pending_rows_;
+        push_count_.fetch_add(1, std::memory_order_relaxed);
+        UpdateMaxPendingNoLock();
+        if (pending_size(ctx_pending_, ctx_head_) == config_.batch_size) {
+            batch_ready_ = true;
             cv_.notify_one();
         }
     } catch (...) {
@@ -497,7 +544,11 @@ void AsyncWriter::PushSuperstep(SuperstepRow row) noexcept {
     try {
         std::lock_guard lock(mu_);
         superstep_pending_.push_back(std::move(row));
-        if (superstep_pending_.size() >= config_.batch_size) {
+        ++pending_rows_;
+        push_count_.fetch_add(1, std::memory_order_relaxed);
+        UpdateMaxPendingNoLock();
+        if (pending_size(superstep_pending_, superstep_head_) == config_.batch_size) {
+            batch_ready_ = true;
             cv_.notify_one();
         }
     } catch (...) {
@@ -509,7 +560,11 @@ void AsyncWriter::PushModelInvocation(ModelInvocationRow row) noexcept {
     try {
         std::lock_guard lock(mu_);
         model_pending_.push_back(std::move(row));
-        if (model_pending_.size() >= config_.batch_size) {
+        ++pending_rows_;
+        push_count_.fetch_add(1, std::memory_order_relaxed);
+        UpdateMaxPendingNoLock();
+        if (pending_size(model_pending_, model_head_) == config_.batch_size) {
+            batch_ready_ = true;
             cv_.notify_one();
         }
     } catch (...) {
@@ -521,7 +576,11 @@ void AsyncWriter::PushToolCall(ToolCallRow row) noexcept {
     try {
         std::lock_guard lock(mu_);
         tool_pending_.push_back(std::move(row));
-        if (tool_pending_.size() >= config_.batch_size) {
+        ++pending_rows_;
+        push_count_.fetch_add(1, std::memory_order_relaxed);
+        UpdateMaxPendingNoLock();
+        if (pending_size(tool_pending_, tool_head_) == config_.batch_size) {
+            batch_ready_ = true;
             cv_.notify_one();
         }
     } catch (...) {
@@ -533,7 +592,11 @@ void AsyncWriter::PushAgentSession(AgentSessionRow row) noexcept {
     try {
         std::lock_guard lock(mu_);
         agent_session_pending_.push_back(std::move(row));
-        if (agent_session_pending_.size() >= config_.batch_size) {
+        ++pending_rows_;
+        push_count_.fetch_add(1, std::memory_order_relaxed);
+        UpdateMaxPendingNoLock();
+        if (pending_size(agent_session_pending_, agent_session_head_) == config_.batch_size) {
+            batch_ready_ = true;
             cv_.notify_one();
         }
     } catch (...) {
@@ -545,7 +608,11 @@ void AsyncWriter::PushAgentTurn(AgentTurnRow row) noexcept {
     try {
         std::lock_guard lock(mu_);
         agent_turn_pending_.push_back(std::move(row));
-        if (agent_turn_pending_.size() >= config_.batch_size) {
+        ++pending_rows_;
+        push_count_.fetch_add(1, std::memory_order_relaxed);
+        UpdateMaxPendingNoLock();
+        if (pending_size(agent_turn_pending_, agent_turn_head_) == config_.batch_size) {
+            batch_ready_ = true;
             cv_.notify_one();
         }
     } catch (...) {
@@ -557,7 +624,11 @@ void AsyncWriter::PushAgentToolCall(AgentToolCallRow row) noexcept {
     try {
         std::lock_guard lock(mu_);
         agent_tool_pending_.push_back(std::move(row));
-        if (agent_tool_pending_.size() >= config_.batch_size) {
+        ++pending_rows_;
+        push_count_.fetch_add(1, std::memory_order_relaxed);
+        UpdateMaxPendingNoLock();
+        if (pending_size(agent_tool_pending_, agent_tool_head_) == config_.batch_size) {
+            batch_ready_ = true;
             cv_.notify_one();
         }
     } catch (...) {
@@ -566,16 +637,16 @@ void AsyncWriter::PushAgentToolCall(AgentToolCallRow row) noexcept {
 }
 
 void AsyncWriter::Flush() {
+    {
+        std::lock_guard lock(mu_);
+        flush_requested_ = true;
+    }
     cv_.notify_one();
 }
 
 size_t AsyncWriter::PendingCount() const noexcept {
     std::lock_guard lock(mu_);
-    return mem_pending_.size() + trace_pending_.size() +
-           ctx_pending_.size() + superstep_pending_.size() +
-           model_pending_.size() + tool_pending_.size() +
-           agent_session_pending_.size() + agent_turn_pending_.size() +
-           agent_tool_pending_.size();
+    return PendingCountNoLock();
 }
 
 uint64_t AsyncWriter::ErrorCount() const noexcept {
@@ -586,79 +657,162 @@ uint64_t AsyncWriter::InsertedCount() const noexcept {
     return inserted_count_.load(std::memory_order_relaxed);
 }
 
-template <typename T>
-static void drain_queue(std::vector<T>& pending, std::vector<T>& batch, uint32_t batch_size) {
-    if (pending.size() <= batch_size) {
-        batch.swap(pending);
-    } else {
-        batch.assign(
-            std::make_move_iterator(pending.begin()),
-            std::make_move_iterator(pending.begin() + static_cast<ptrdiff_t>(batch_size)));
-        pending.erase(pending.begin(),
-                      pending.begin() + static_cast<ptrdiff_t>(batch_size));
-    }
+AsyncWriterPerfSnapshot AsyncWriter::PerfSnapshot() const noexcept {
+    AsyncWriterPerfSnapshot out;
+    out.push_calls = push_count_.load(std::memory_order_relaxed);
+    out.wake_count = wake_count_.load(std::memory_order_relaxed);
+    out.flush_count = flush_count_.load(std::memory_order_relaxed);
+    out.total_flush_us = total_flush_us_.load(std::memory_order_relaxed);
+    out.max_flush_us = max_flush_us_.load(std::memory_order_relaxed);
+    out.last_flush_us = last_flush_us_.load(std::memory_order_relaxed);
+    out.last_flush_rows = last_flush_rows_.load(std::memory_order_relaxed);
+    out.last_pending_rows = last_pending_rows_.load(std::memory_order_relaxed);
+    out.max_pending_rows = max_pending_rows_.load(std::memory_order_relaxed);
+    out.error_count = error_count_.load(std::memory_order_relaxed);
+    out.inserted_count = inserted_count_.load(std::memory_order_relaxed);
+    return out;
 }
 
-void AsyncWriter::DrainAndInsert(Client& client) {
-    std::vector<MemEventRow> mem_batch;
-    std::vector<TraceEventRow> trace_batch;
-    std::vector<ContextRow> ctx_batch;
-    std::vector<SuperstepRow> superstep_batch;
-    std::vector<ModelInvocationRow> model_batch;
-    std::vector<ToolCallRow> tool_batch;
-    std::vector<AgentSessionRow> agent_session_batch;
-    std::vector<AgentTurnRow> agent_turn_batch;
-    std::vector<AgentToolCallRow> agent_tool_batch;
+size_t AsyncWriter::PendingCountNoLock() const noexcept {
+    return pending_rows_;
+}
+
+void AsyncWriter::UpdateMaxPendingNoLock() noexcept {
+    auto pending = static_cast<uint64_t>(pending_rows_);
+    last_pending_rows_.store(pending, std::memory_order_relaxed);
+    store_max(max_pending_rows_, pending);
+}
+
+void AsyncWriter::RecomputeBatchReadyNoLock() noexcept {
+    batch_ready_ =
+        pending_size(mem_pending_, mem_head_) >= config_.batch_size ||
+        pending_size(trace_pending_, trace_head_) >= config_.batch_size ||
+        pending_size(ctx_pending_, ctx_head_) >= config_.batch_size ||
+        pending_size(superstep_pending_, superstep_head_) >= config_.batch_size ||
+        pending_size(model_pending_, model_head_) >= config_.batch_size ||
+        pending_size(tool_pending_, tool_head_) >= config_.batch_size ||
+        pending_size(agent_session_pending_, agent_session_head_) >= config_.batch_size ||
+        pending_size(agent_turn_pending_, agent_turn_head_) >= config_.batch_size ||
+        pending_size(agent_tool_pending_, agent_tool_head_) >= config_.batch_size;
+}
+
+template <typename T>
+static size_t drain_queue(std::vector<T>& pending, size_t& head, std::vector<T>& batch, uint32_t batch_size) {
+    const size_t available = pending_size(pending, head);
+    if (!available) {
+        return 0;
+    }
+    const size_t take = std::min<size_t>(available, static_cast<size_t>(batch_size));
+    const auto begin = pending.begin() + static_cast<ptrdiff_t>(head);
+    const auto end = begin + static_cast<ptrdiff_t>(take);
+    batch.insert(batch.end(), std::make_move_iterator(begin), std::make_move_iterator(end));
+    head += take;
+
+    if (head == pending.size()) {
+        pending.clear();
+        head = 0;
+        return take;
+    }
+
+    // Avoid O(n) front erase every drain. Compact only when head grows large.
+    if (head >= pending.size() / 2) {
+        auto new_end = std::move(pending.begin() + static_cast<ptrdiff_t>(head), pending.end(), pending.begin());
+        pending.erase(new_end, pending.end());
+        head = 0;
+    }
+    return take;
+}
+
+size_t AsyncWriter::DrainAndInsert(Client& client) {
+    auto& mem_batch = mem_batch_;
+    auto& trace_batch = trace_batch_;
+    auto& ctx_batch = ctx_batch_;
+    auto& superstep_batch = superstep_batch_;
+    auto& model_batch = model_batch_;
+    auto& tool_batch = tool_batch_;
+    auto& agent_session_batch = agent_session_batch_;
+    auto& agent_turn_batch = agent_turn_batch_;
+    auto& agent_tool_batch = agent_tool_batch_;
+    mem_batch.clear();
+    trace_batch.clear();
+    ctx_batch.clear();
+    superstep_batch.clear();
+    model_batch.clear();
+    tool_batch.clear();
+    agent_session_batch.clear();
+    agent_turn_batch.clear();
+    agent_tool_batch.clear();
+    size_t inserted = 0;
 
     {
         std::lock_guard lock(mu_);
-        drain_queue(mem_pending_, mem_batch, config_.batch_size);
-        drain_queue(trace_pending_, trace_batch, config_.batch_size);
-        drain_queue(ctx_pending_, ctx_batch, config_.batch_size);
-        drain_queue(superstep_pending_, superstep_batch, config_.batch_size);
-        drain_queue(model_pending_, model_batch, config_.batch_size);
-        drain_queue(tool_pending_, tool_batch, config_.batch_size);
-        drain_queue(agent_session_pending_, agent_session_batch, config_.batch_size);
-        drain_queue(agent_turn_pending_, agent_turn_batch, config_.batch_size);
-        drain_queue(agent_tool_pending_, agent_tool_batch, config_.batch_size);
+        size_t drained = 0;
+        drained += drain_queue(mem_pending_, mem_head_, mem_batch, config_.batch_size);
+        drained += drain_queue(trace_pending_, trace_head_, trace_batch, config_.batch_size);
+        drained += drain_queue(ctx_pending_, ctx_head_, ctx_batch, config_.batch_size);
+        drained += drain_queue(superstep_pending_, superstep_head_, superstep_batch, config_.batch_size);
+        drained += drain_queue(model_pending_, model_head_, model_batch, config_.batch_size);
+        drained += drain_queue(tool_pending_, tool_head_, tool_batch, config_.batch_size);
+        drained += drain_queue(agent_session_pending_, agent_session_head_, agent_session_batch, config_.batch_size);
+        drained += drain_queue(agent_turn_pending_, agent_turn_head_, agent_turn_batch, config_.batch_size);
+        drained += drain_queue(agent_tool_pending_, agent_tool_head_, agent_tool_batch, config_.batch_size);
+        if (drained >= pending_rows_) {
+            pending_rows_ = 0;
+        } else {
+            pending_rows_ -= drained;
+        }
+        RecomputeBatchReadyNoLock();
+        flush_requested_ = false;
+        last_pending_rows_.store(static_cast<uint64_t>(pending_rows_), std::memory_order_relaxed);
     }
 
     if (!mem_batch.empty()) {
         auto n = client.InsertMemEvents(mem_batch);
+        inserted += n;
         inserted_count_.fetch_add(n, std::memory_order_relaxed);
     }
     if (!trace_batch.empty()) {
         auto n = client.InsertTraceEvents(trace_batch);
+        inserted += n;
         inserted_count_.fetch_add(n, std::memory_order_relaxed);
     }
     if (!ctx_batch.empty()) {
         auto n = client.InsertContextRows(ctx_batch);
+        inserted += n;
         inserted_count_.fetch_add(n, std::memory_order_relaxed);
     }
     if (!superstep_batch.empty()) {
         auto n = client.InsertSupersteps(superstep_batch);
+        inserted += n;
         inserted_count_.fetch_add(n, std::memory_order_relaxed);
     }
     if (!model_batch.empty()) {
         auto n = client.InsertModelInvocations(model_batch);
+        inserted += n;
         inserted_count_.fetch_add(n, std::memory_order_relaxed);
     }
     if (!tool_batch.empty()) {
         auto n = client.InsertToolCalls(tool_batch);
+        inserted += n;
         inserted_count_.fetch_add(n, std::memory_order_relaxed);
     }
     if (!agent_session_batch.empty()) {
         auto n = client.InsertAgentSessions(agent_session_batch);
+        inserted += n;
         inserted_count_.fetch_add(n, std::memory_order_relaxed);
     }
     if (!agent_turn_batch.empty()) {
         auto n = client.InsertAgentTurns(agent_turn_batch);
+        inserted += n;
         inserted_count_.fetch_add(n, std::memory_order_relaxed);
     }
     if (!agent_tool_batch.empty()) {
         auto n = client.InsertAgentToolCalls(agent_tool_batch);
+        inserted += n;
         inserted_count_.fetch_add(n, std::memory_order_relaxed);
     }
+    last_flush_rows_.store(static_cast<uint64_t>(inserted), std::memory_order_relaxed);
+    return inserted;
 }
 
 void AsyncWriter::FlushThread() {
@@ -668,18 +822,10 @@ void AsyncWriter::FlushThread() {
         {
             std::unique_lock lock(mu_);
             cv_.wait_for(lock, std::chrono::milliseconds(config_.flush_interval_ms), [this] {
-                return stop_.load(std::memory_order_relaxed) ||
-                       mem_pending_.size() >= config_.batch_size ||
-                       trace_pending_.size() >= config_.batch_size ||
-                       ctx_pending_.size() >= config_.batch_size ||
-                       superstep_pending_.size() >= config_.batch_size ||
-                       model_pending_.size() >= config_.batch_size ||
-                       tool_pending_.size() >= config_.batch_size ||
-                       agent_session_pending_.size() >= config_.batch_size ||
-                       agent_turn_pending_.size() >= config_.batch_size ||
-                       agent_tool_pending_.size() >= config_.batch_size;
+                return stop_.load(std::memory_order_relaxed) || batch_ready_ || flush_requested_;
             });
         }
+        wake_count_.fetch_add(1, std::memory_order_relaxed);
 
         // Lazy connect
         if (!client) {
@@ -692,7 +838,15 @@ void AsyncWriter::FlushThread() {
         }
 
         try {
-            DrainAndInsert(*client);
+            auto flush_start = std::chrono::steady_clock::now();
+            auto rows = DrainAndInsert(*client);
+            auto flush_us = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - flush_start).count());
+            last_flush_us_.store(flush_us, std::memory_order_relaxed);
+            total_flush_us_.fetch_add(flush_us, std::memory_order_relaxed);
+            store_max(max_flush_us_, flush_us);
+            if (rows > 0)
+                flush_count_.fetch_add(1, std::memory_order_relaxed);
         } catch (...) {
             error_count_.fetch_add(1, std::memory_order_relaxed);
             // Reset client to force reconnect on next iteration
@@ -703,7 +857,15 @@ void AsyncWriter::FlushThread() {
     // Final drain on shutdown
     if (client) {
         try {
-            DrainAndInsert(*client);
+            auto flush_start = std::chrono::steady_clock::now();
+            auto rows = DrainAndInsert(*client);
+            auto flush_us = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - flush_start).count());
+            last_flush_us_.store(flush_us, std::memory_order_relaxed);
+            total_flush_us_.fetch_add(flush_us, std::memory_order_relaxed);
+            store_max(max_flush_us_, flush_us);
+            if (rows > 0)
+                flush_count_.fetch_add(1, std::memory_order_relaxed);
         } catch (...) {
             // Best effort
         }

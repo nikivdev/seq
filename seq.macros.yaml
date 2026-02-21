@@ -476,6 +476,3 @@
 - name: "telegram: saved"
   action: open_url
   arg: "tg://resolve?domain=nikivi"
-- name: "X Messages (in Arc)"
-  action: todo
-  arg: ""

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <string>
 #include <string_view>
 
 namespace trace {
@@ -8,6 +9,7 @@ void init(std::string_view app);
 void shutdown();
 void log(std::string_view level, std::string_view msg);
 void event(std::string_view name, std::string_view detail = {});
+std::string writer_perf_json();
 
 struct Span {
   explicit Span(std::string_view name);
