@@ -11,16 +11,19 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <chrono>
 #include <cerrno>
 #include <cstring>
 #include <cstdlib>
 #include <fstream>
+#include <future>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -33,6 +36,19 @@
 
 namespace action_pack_server {
 namespace {
+
+struct Runtime {
+  std::mutex mu;
+  std::thread server_thread;
+  std::atomic<bool> stop{false};
+  std::atomic<bool> running{false};
+  int listen_fd = -1;
+};
+
+Runtime& runtime() {
+  static Runtime rt;
+  return rt;
+}
 
 uint64_t now_epoch_ms() {
   using namespace std::chrono;
@@ -755,6 +771,12 @@ std::string handle_pack(ServerState* st, const Options& opts, const action_pack:
 }
 
 void serve_loop(const Options& opts) {
+  Runtime& rt = runtime();
+  rt.running.store(true, std::memory_order_release);
+  struct RunningGuard {
+    Runtime& runtime_ref;
+    ~RunningGuard() { runtime_ref.running.store(false, std::memory_order_release); }
+  } running_guard{rt};
   TRACE_SCOPE("action_pack_server");
   std::string host;
   uint16_t port = 0;
@@ -806,6 +828,10 @@ void serve_loop(const Options& opts) {
     trace::log("error", "action-pack socket failed");
     return;
   }
+  {
+    std::lock_guard<std::mutex> lock(rt.mu);
+    rt.listen_fd = fd;
+  }
   int yes = 1;
   setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
 
@@ -814,28 +840,75 @@ void serve_loop(const Options& opts) {
   addr.sin_port = htons(port);
   if (::inet_pton(AF_INET, host.c_str(), &addr.sin_addr) != 1) {
     trace::log("error", "action-pack bad host ip");
+    {
+      std::lock_guard<std::mutex> lock(rt.mu);
+      if (rt.listen_fd == fd) rt.listen_fd = -1;
+    }
     ::close(fd);
     return;
   }
   if (::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
     trace::log("error", std::string("action-pack bind failed errno=") + std::to_string(errno));
+    {
+      std::lock_guard<std::mutex> lock(rt.mu);
+      rt.listen_fd = -1;
+    }
     ::close(fd);
     return;
   }
   if (::listen(fd, 16) != 0) {
     trace::log("error", "action-pack listen failed");
+    {
+      std::lock_guard<std::mutex> lock(rt.mu);
+      rt.listen_fd = -1;
+    }
     ::close(fd);
     return;
   }
 
   trace::log("info", "action-pack listening " + host + ":" + std::to_string(port));
 
-  while (true) {
+  std::vector<std::future<void>> workers;
+  while (!rt.stop.load(std::memory_order_acquire)) {
+    for (auto it = workers.begin(); it != workers.end();) {
+      if (it->wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        try {
+          it->get();
+        } catch (...) {
+        }
+        it = workers.erase(it);
+      } else {
+        ++it;
+      }
+    }
+
+    pollfd pfd{};
+    pfd.fd = fd;
+    pfd.events = POLLIN;
+    int pr = ::poll(&pfd, 1, 250);
+    if (pr < 0) {
+      if (errno == EINTR) continue;
+      trace::log("error", std::string("action-pack poll failed errno=") + std::to_string(errno));
+      break;
+    }
+    if (pr == 0) {
+      continue;
+    }
+    if ((pfd.revents & POLLIN) == 0) {
+      if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+        if (rt.stop.load(std::memory_order_acquire)) break;
+        trace::log("error", "action-pack poll unexpected revents");
+        break;
+      }
+      continue;
+    }
+
     sockaddr_in peer{};
     socklen_t peer_len = sizeof(peer);
     int client = ::accept(fd, reinterpret_cast<sockaddr*>(&peer), &peer_len);
     if (client < 0) {
       if (errno == EINTR) continue;
+      if (rt.stop.load(std::memory_order_acquire) || errno == EBADF || errno == EINVAL) break;
       trace::log("error", "action-pack accept failed");
       break;
     }
@@ -846,7 +919,7 @@ void serve_loop(const Options& opts) {
     }
 
     limiter.acquire();
-    std::thread([client, &st, &limiter, local]() mutable {
+    workers.emplace_back(std::async(std::launch::async, [client, &st, &limiter, local]() mutable {
       ConnPermit permit;
       permit.lim = &limiter;
 
@@ -870,16 +943,80 @@ void serve_loop(const Options& opts) {
       std::string resp = handle_pack(&st, local, env);
       (void)write_all_fd(client, resp.data(), resp.size());
       ::close(client);
-    }).detach();
+    }));
   }
-  ::close(fd);
+  for (auto& worker : workers) {
+    try {
+      worker.get();
+    } catch (...) {
+    }
+  }
+  bool should_close = false;
+  {
+    std::lock_guard<std::mutex> lock(rt.mu);
+    if (rt.listen_fd == fd) {
+      rt.listen_fd = -1;
+      should_close = true;
+    }
+  }
+  if (should_close) {
+    if (::close(fd) != 0 && errno != EBADF) {
+      trace::log("error", std::string("action-pack close failed errno=") + std::to_string(errno));
+    }
+  }
 }
 
 }  // namespace
 
 void start_in_background(const Options& opts) {
   if (opts.action_pack_listen.empty()) return;
-  std::thread([opts] { serve_loop(opts); }).detach();
+  Runtime& rt = runtime();
+  std::thread stale_thread;
+  {
+    std::lock_guard<std::mutex> lock(rt.mu);
+    if (rt.server_thread.joinable()) {
+      if (rt.running.load(std::memory_order_acquire)) {
+        trace::log("info", "action-pack already running");
+        return;
+      }
+      stale_thread = std::move(rt.server_thread);
+    }
+  }
+  if (stale_thread.joinable()) {
+    stale_thread.join();
+  }
+  {
+    std::lock_guard<std::mutex> lock(rt.mu);
+    rt.stop.store(false, std::memory_order_release);
+    rt.server_thread = std::thread([opts] { serve_loop(opts); });
+  }
+}
+
+void stop() {
+  Runtime& rt = runtime();
+  std::thread thread_to_join;
+  {
+    std::lock_guard<std::mutex> lock(rt.mu);
+    if (!rt.server_thread.joinable()) return;
+    rt.stop.store(true, std::memory_order_release);
+    if (rt.listen_fd >= 0) {
+      ::shutdown(rt.listen_fd, SHUT_RDWR);
+      ::close(rt.listen_fd);
+      rt.listen_fd = -1;
+    }
+    thread_to_join = std::move(rt.server_thread);
+  }
+  if (thread_to_join.joinable()) {
+    thread_to_join.join();
+  }
+  rt.stop.store(false, std::memory_order_release);
+  rt.running.store(false, std::memory_order_release);
+}
+
+bool is_running() {
+  Runtime& rt = runtime();
+  std::lock_guard<std::mutex> lock(rt.mu);
+  return rt.server_thread.joinable();
 }
 
 }  // namespace action_pack_server

@@ -16,6 +16,7 @@
 #include <signal.h>
 #include <cstdio>
 #include <algorithm>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
@@ -236,6 +237,45 @@ AppState& app_state() {
 
 static id g_app_activate_observer_token = nil;
 static uint64_t g_start_ms = 0;
+static volatile sig_atomic_t g_shutdown_signal = 0;
+static volatile sig_atomic_t g_stream_fd_signal = -1;
+static volatile sig_atomic_t g_dgram_fd_signal = -1;
+
+struct DaemonRuntime {
+  std::atomic<bool> stop_requested{false};
+  std::thread observer_thread;
+  std::thread poller_thread;
+  std::thread dgram_thread;
+  int stream_fd = -1;
+  int dgram_fd = -1;
+};
+
+DaemonRuntime& daemon_runtime() {
+  static DaemonRuntime rt;
+  return rt;
+}
+
+bool shutdown_requested() {
+  return g_shutdown_signal != 0 || daemon_runtime().stop_requested.load(std::memory_order_acquire);
+}
+
+void request_shutdown() {
+  daemon_runtime().stop_requested.store(true, std::memory_order_release);
+}
+
+void seqd_shutdown_signal_handler(int) {
+  g_shutdown_signal = 1;
+  int stream_fd = static_cast<int>(g_stream_fd_signal);
+  g_stream_fd_signal = -1;
+  if (stream_fd >= 0) {
+    ::close(stream_fd);
+  }
+  int dgram_fd = static_cast<int>(g_dgram_fd_signal);
+  g_dgram_fd_signal = -1;
+  if (dgram_fd >= 0) {
+    ::close(dgram_fd);
+  }
+}
 
 std::string executable_path() {
   uint32_t size = 0;
@@ -761,7 +801,9 @@ void start_app_observer() {
     NSRunningApplication* front = [[NSWorkspace sharedWorkspace] frontmostApplication];
     update_front_app(app_info_from(front));
   }
-  std::thread([] {
+  DaemonRuntime& rt = daemon_runtime();
+  if (rt.observer_thread.joinable()) return;
+  rt.observer_thread = std::thread([] {
     @autoreleasepool {
       NSNotificationCenter* center = [[NSWorkspace sharedWorkspace] notificationCenter];
       // IMPORTANT: retain the observer token, otherwise the observer is removed immediately
@@ -778,9 +820,18 @@ void start_app_observer() {
                               metrics::record("app.activate", now_epoch_ms(), 0, true, info.name);
                             }
                           }];
-      [[NSRunLoop currentRunLoop] run];
+      while (!shutdown_requested()) {
+        @autoreleasepool {
+          [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                   beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.25]];
+        }
+      }
+      if (g_app_activate_observer_token) {
+        [center removeObserver:g_app_activate_observer_token];
+        g_app_activate_observer_token = nil;
+      }
     }
-  }).detach();
+  });
 }
 
 void start_app_poller() {
@@ -796,9 +847,11 @@ void start_app_poller() {
   if (poll_ms <= 0) {
     return;  // explicitly disabled
   }
-  std::thread([] {
+  DaemonRuntime& rt = daemon_runtime();
+  if (rt.poller_thread.joinable()) return;
+  rt.poller_thread = std::thread([] {
     @autoreleasepool {
-      while (true) {
+      while (!shutdown_requested()) {
         NSRunningApplication* front = [[NSWorkspace sharedWorkspace] frontmostApplication];
         AppInfo info = app_info_from(front);
         bool changed = update_front_app(info);
@@ -816,7 +869,18 @@ void start_app_poller() {
         std::this_thread::sleep_for(std::chrono::milliseconds(ms));
       }
     }
-  }).detach();
+  });
+}
+
+void stop_app_tracking() {
+  request_shutdown();
+  DaemonRuntime& rt = daemon_runtime();
+  if (rt.observer_thread.joinable()) {
+    rt.observer_thread.join();
+  }
+  if (rt.poller_thread.joinable()) {
+    rt.poller_thread.join();
+  }
 }
 
 std::string perf_json() {
@@ -888,6 +952,12 @@ bool read_line(int fd, std::string* out) {
       return !out->empty();
     }
     if (n < 0 && errno == EINTR) {
+      continue;
+    }
+    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+      if (shutdown_requested()) {
+        return !out->empty();
+      }
       continue;
     }
     return false;
@@ -1979,8 +2049,9 @@ std::string handle_request(const Options& opts, macros::Registry& registry, std:
 }
 
 // Fire-and-forget DGRAM listener — no connect/accept overhead.
-// Runs on a detached thread alongside the STREAM server.
+// Runs alongside the STREAM server until shutdown is requested.
 void run_dgram_listener(const Options& opts, macros::Registry& registry) {
+  DaemonRuntime& rt = daemon_runtime();
   std::string dgram_path = opts.socket_path + ".dgram";
   ::unlink(dgram_path.c_str());
 
@@ -2017,6 +2088,14 @@ void run_dgram_listener(const Options& opts, macros::Registry& registry) {
     ::close(fd);
     return;
   }
+  rt.dgram_fd = fd;
+  g_dgram_fd_signal = static_cast<sig_atomic_t>(fd);
+
+  // Periodically wake recvfrom so we can observe shutdown state.
+  timeval tv{};
+  tv.tv_sec = 0;
+  tv.tv_usec = 250000;
+  ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
   // Increase receive buffer for burst tolerance (64KB).
   int bufsize = 65536;
@@ -2025,10 +2104,12 @@ void run_dgram_listener(const Options& opts, macros::Registry& registry) {
   trace::log("info", "seqd dgram listening on " + dgram_path);
 
   char buf[4096];
-  while (true) {
+  while (!shutdown_requested()) {
     ssize_t n = ::recvfrom(fd, buf, sizeof(buf) - 1, 0, nullptr, nullptr);
     if (n < 0) {
       if (errno == EINTR) continue;
+      if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
+      if (shutdown_requested() || errno == EBADF) break;
       trace::log("error", std::string("dgram recvfrom errno=") + std::to_string(errno));
       break;
     }
@@ -2041,11 +2122,18 @@ void run_dgram_listener(const Options& opts, macros::Registry& registry) {
     // Fire-and-forget: process but discard response.
     handle_request(opts, registry, line);
   }
-  ::close(fd);
+  if (rt.dgram_fd == fd && g_dgram_fd_signal == static_cast<sig_atomic_t>(fd)) {
+    rt.dgram_fd = -1;
+    g_dgram_fd_signal = -1;
+    ::close(fd);
+  } else if (rt.dgram_fd == fd) {
+    rt.dgram_fd = -1;
+  }
   ::unlink(dgram_path.c_str());
 }
 
 int run_server(const Options& opts, macros::Registry& registry) {
+  DaemonRuntime& rt = daemon_runtime();
   int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
   if (fd < 0) {
     io::err.write("error: socket failed\n");
@@ -2094,22 +2182,32 @@ int run_server(const Options& opts, macros::Registry& registry) {
     ::close(fd);
     return 1;
   }
+  rt.stream_fd = fd;
+  g_stream_fd_signal = static_cast<sig_atomic_t>(fd);
 
   trace::log("info", "seqd listening");
 
-  // Launch fire-and-forget DGRAM listener on a detached thread.
-  std::thread dgram_thread([&opts, &registry] { run_dgram_listener(opts, registry); });
-  dgram_thread.detach();
+  // Launch DGRAM listener and join it during shutdown.
+  if (!rt.dgram_thread.joinable()) {
+    rt.dgram_thread = std::thread([&opts, &registry] { run_dgram_listener(opts, registry); });
+  }
 
-    while (true) {
+    while (!shutdown_requested()) {
       int client = ::accept(fd, nullptr, nullptr);
       if (unlikely(client < 0)) {
         if (errno == EINTR) {
           continue;
         }
+        if (shutdown_requested() || errno == EBADF || errno == EINVAL) {
+          break;
+        }
         trace::log("error", std::string("accept failed errno=") + std::to_string(errno));
         break;
       }
+      timeval io_tv{};
+      io_tv.tv_sec = 0;
+      io_tv.tv_usec = 250000;
+      ::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &io_tv, sizeof(io_tv));
       // Keep connection alive: process multiple newline-delimited commands per client.
       // This supports persistent connections from Karabiner's socket_sender, avoiding
       // connect()/accept() overhead per command (~0.1ms savings per message).
@@ -2124,7 +2222,17 @@ int run_server(const Options& opts, macros::Registry& registry) {
       }
       ::close(client);
     }
-  ::close(fd);
+  if (rt.stream_fd == fd && g_stream_fd_signal == static_cast<sig_atomic_t>(fd)) {
+    rt.stream_fd = -1;
+    g_stream_fd_signal = -1;
+    ::close(fd);
+  } else if (rt.stream_fd == fd) {
+    rt.stream_fd = -1;
+  }
+  request_shutdown();
+  if (rt.dgram_thread.joinable()) {
+    rt.dgram_thread.join();
+  }
   return 0;
 }
 }  // namespace
@@ -2156,7 +2264,16 @@ bool activate_previous_front_app_fast() {
 }
 
 int run_daemon(const Options& opts) {
+  DaemonRuntime& rt = daemon_runtime();
+  rt.stop_requested.store(false, std::memory_order_release);
+  rt.stream_fd = -1;
+  rt.dgram_fd = -1;
+  g_shutdown_signal = 0;
+  g_stream_fd_signal = -1;
+  g_dgram_fd_signal = -1;
   signal(SIGPIPE, SIG_IGN);
+  signal(SIGINT, seqd_shutdown_signal_handler);
+  signal(SIGTERM, seqd_shutdown_signal_handler);
 
   // NSApplication is required for ScreenCaptureKit dispatch callbacks and
   // NSWorkspace notification delivery.
@@ -2246,6 +2363,10 @@ int run_daemon(const Options& opts) {
     }
   }
 
-  return run_server(opts, registry);
+  int rc = run_server(opts, registry);
+  action_pack_server::stop();
+  stop_app_tracking();
+  capture::stop();
+  return rc;
 }
 }  // namespace seqd
