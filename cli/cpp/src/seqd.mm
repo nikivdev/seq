@@ -95,6 +95,131 @@ std::string action_pack_receiver_conf_path() {
   return dir + "/action_pack_receiver.conf";
 }
 
+std::string bmq_bridge_socket_path() {
+  const char* env = ::getenv("SEQ_BMQ_BRIDGE_SOCKET");
+  if (env && *env) {
+    return std::string(env);
+  }
+  std::string dir = seq_app_support_dir();
+  if (!dir.empty()) {
+    return dir + "/bmq_bridge.sock";
+  }
+  return "/tmp/seq_bmq_bridge.sock";
+}
+
+std::string bmq_bridge_spool_path() {
+  const char* env = ::getenv("SEQ_BMQ_BRIDGE_SPOOL");
+  if (env && *env) {
+    return std::string(env);
+  }
+  std::string dir = seq_app_support_dir();
+  if (!dir.empty()) {
+    return dir + "/bmq_bridge_spool.tsv";
+  }
+  return "/tmp/seq_bmq_bridge_spool.tsv";
+}
+
+bool write_all_fd(int fd, const char* data, size_t len) {
+  size_t off = 0;
+  while (off < len) {
+    ssize_t n = ::write(fd, data + off, len - off);
+    if (n > 0) {
+      off += static_cast<size_t>(n);
+      continue;
+    }
+    if (n < 0 && errno == EINTR) continue;
+    return false;
+  }
+  return true;
+}
+
+bool append_bmq_spool(std::string_view payload, std::string* err) {
+  std::string path = bmq_bridge_spool_path();
+  std::error_code ec;
+  std::filesystem::path p(path);
+  if (p.has_parent_path()) {
+    std::filesystem::create_directories(p.parent_path(), ec);
+  }
+  int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+  if (fd < 0) {
+    if (err) {
+      *err = "spool_open_failed errno=" + std::to_string(errno);
+    }
+    return false;
+  }
+  std::string line;
+  line.reserve(payload.size() + 48);
+  line.append(std::to_string(now_epoch_ms()));
+  line.push_back('\t');
+  line.append(payload.data(), payload.size());
+  line.push_back('\n');
+  bool ok = write_all_fd(fd, line.data(), line.size());
+  int saved_errno = errno;
+  ::close(fd);
+  if (!ok && err) {
+    *err = "spool_write_failed errno=" + std::to_string(saved_errno);
+  }
+  return ok;
+}
+
+bool send_bmq_to_bridge(std::string_view payload, bool* spooled, std::string* err) {
+  if (spooled) *spooled = false;
+  std::string path = bmq_bridge_socket_path();
+  int fd = ::socket(AF_UNIX, SOCK_DGRAM, 0);
+  if (fd < 0) {
+    if (append_bmq_spool(payload, err)) {
+      if (spooled) *spooled = true;
+      return true;
+    }
+    if (err && err->empty()) {
+      *err = "bridge_socket_failed errno=" + std::to_string(errno);
+    }
+    return false;
+  }
+
+  sockaddr_un addr{};
+  addr.sun_family = AF_UNIX;
+  if (path.size() >= sizeof(addr.sun_path)) {
+    ::close(fd);
+    if (err) *err = "bridge_socket_path_too_long";
+    return false;
+  }
+  std::snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", path.c_str());
+#if defined(__APPLE__)
+  socklen_t addrlen =
+      static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + std::strlen(addr.sun_path));
+  if (addrlen <= 0xff) {
+    addr.sun_len = static_cast<uint8_t>(addrlen);
+  } else {
+    addr.sun_len = static_cast<uint8_t>(sizeof(sockaddr_un));
+  }
+#else
+  socklen_t addrlen =
+      static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + std::strlen(addr.sun_path) + 1);
+#endif
+
+  ssize_t sent = ::sendto(fd,
+                          payload.data(),
+                          payload.size(),
+                          MSG_DONTWAIT,
+                          reinterpret_cast<const sockaddr*>(&addr),
+                          addrlen);
+  int send_errno = errno;
+  ::close(fd);
+  if (sent == static_cast<ssize_t>(payload.size())) {
+    return true;
+  }
+
+  if (append_bmq_spool(payload, err)) {
+    if (spooled) *spooled = true;
+    return true;
+  }
+  if (err && err->empty()) {
+    *err = "bridge_send_failed errno=" + std::to_string(send_errno);
+  }
+  return false;
+}
+
 bool parse_bool(std::string_view v, bool fallback) {
   if (v == "1" || v == "true" || v == "yes" || v == "on") return true;
   if (v == "0" || v == "false" || v == "no" || v == "off") return false;
@@ -1766,6 +1891,26 @@ std::string handle_request(const Options& opts, macros::Registry& registry, std:
         }
         event_name = name;
         subject = std::move(subject_in);
+        response = "OK\n";
+      }
+    }
+  } else if (strings::starts_with(view, "BMQ_ENQ ")) {
+    event_name = "seqd.bmq_enq";
+    std::string payload = std::string(trim_prefix(view, "BMQ_ENQ "));
+    if (payload.empty()) {
+      response = "ERR usage: BMQ_ENQ <payload>\n";
+    } else if (payload.find('\n') != std::string::npos || payload.find('\r') != std::string::npos) {
+      response = "ERR payload must be single-line\n";
+    } else if (payload.size() > 3072) {
+      response = "ERR payload_too_large max=3072\n";
+    } else {
+      bool spooled = false;
+      std::string send_err;
+      bool ok_send = send_bmq_to_bridge(payload, &spooled, &send_err);
+      if (!ok_send) {
+        response = "ERR " + (send_err.empty() ? std::string("bmq_bridge_unavailable") : send_err) + "\n";
+      } else {
+        subject = spooled ? "spooled" : "bridge";
         response = "OK\n";
       }
     }

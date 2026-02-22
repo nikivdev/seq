@@ -136,6 +136,7 @@ constexpr const char* kCmdScreenshot = "screenshot";
 constexpr const char* kCmdAgent = "agent";
 constexpr const char* kCmdActionPack = "action-pack";
 constexpr const char* kCmdRpc = "rpc";
+constexpr const char* kCmdBmqEnq = "bmq-enq";
 
 void print_usage(string_view name) {
   io::out.write(name);
@@ -166,6 +167,7 @@ void print_usage(string_view name) {
   io::out.write("  screenshot [path]     Capture screen (default: /tmp/seq_screenshot.png)\n");
   io::out.write("  agent <instruction>   Run UI-TARS computer use agent\n");
   io::out.write("  rpc <json>            Send typed JSON RPC request to seqd\n");
+  io::out.write("  bmq-enq <payload>     Enqueue a low-latency async job into seq BMQ bridge\n");
   io::out.write("  action-pack ...       Signed remote action packs (see: seq action-pack help)\n");
   io::out.write("  ping                  Ping seqd\n");
   io::out.write("  help                  Show this help\n");
@@ -300,6 +302,83 @@ int send_request(const Options& opts, string_view payload, std::string* response
     io::err.write("\n");
     trace::log("error", "connect failed");
     return 1;
+  }
+  return 0;
+}
+
+bool try_send_dgram(const std::string& path, string_view payload) {
+  int fd = ::socket(AF_UNIX, SOCK_DGRAM, 0);
+  if (fd < 0) {
+    return false;
+  }
+  sockaddr_un addr{};
+  addr.sun_family = AF_UNIX;
+  if (path.size() >= sizeof(addr.sun_path)) {
+    ::close(fd);
+    errno = ENAMETOOLONG;
+    return false;
+  }
+  std::snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", path.c_str());
+#if defined(__APPLE__)
+  socklen_t addrlen =
+      static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + std::strlen(addr.sun_path));
+  if (addrlen <= 0xff) {
+    addr.sun_len = static_cast<uint8_t>(addrlen);
+  } else {
+    addr.sun_len = static_cast<uint8_t>(sizeof(sockaddr_un));
+  }
+#else
+  socklen_t addrlen =
+      static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + std::strlen(addr.sun_path) + 1);
+#endif
+  ssize_t sent = ::sendto(fd,
+                          payload.data(),
+                          payload.size(),
+                          MSG_DONTWAIT,
+                          reinterpret_cast<const sockaddr*>(&addr),
+                          addrlen);
+  ::close(fd);
+  return sent == static_cast<ssize_t>(payload.size());
+}
+
+int cmd_bmq_enq(const Options& opts, const std::string& payload_raw) {
+  std::string payload = strings::trim(payload_raw);
+  if (payload.empty()) {
+    io::err.write("error: bmq-enq requires payload\n");
+    return 1;
+  }
+  if (payload.find('\n') != std::string::npos || payload.find('\r') != std::string::npos) {
+    io::err.write("error: bmq-enq payload must be single-line\n");
+    return 1;
+  }
+  trace::event("cli.bmq_enq", payload.size() > 80 ? payload.substr(0, 80) : payload);
+  std::string request;
+  request.reserve(payload.size() + 16);
+  request.append("BMQ_ENQ ");
+  request.append(payload);
+  request.push_back('\n');
+
+  // Fast path: seqd datagram avoids connect/read round-trip.
+  if (try_send_dgram(opts.socket_path + ".dgram", request)) {
+    io::out.write("OK\n");
+    return 0;
+  }
+
+  std::string response;
+  int rc = send_request(opts, request, &response);
+  if (rc != 0) {
+    return rc;
+  }
+  if (response.rfind("ERR", 0) == 0) {
+    io::err.write(response);
+    if (!response.empty() && response.back() != '\n') {
+      io::err.write("\n");
+    }
+    return 1;
+  }
+  io::out.write(response);
+  if (!response.empty() && response.back() != '\n') {
+    io::out.write("\n");
   }
   return 0;
 }
@@ -962,6 +1041,13 @@ int main(int argc, char** argv) {
     }
     std::string payload = join_args(argc, argv, index);
     return cmd_rpc(opts, payload);
+  }
+  if (cmd == kCmdBmqEnq) {
+    if (index >= argc) {
+      io::err.write("error: bmq-enq requires payload\n");
+      return 1;
+    }
+    return cmd_bmq_enq(opts, join_args(argc, argv, index));
   }
   if (cmd == kCmdHelp) {
     print_usage(name);

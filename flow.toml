@@ -738,6 +738,46 @@ command = "sh -lc \"cd $HOME/repos/pqrs-org/Karabiner-Elements-user-command-rece
 description = "Report system pressure/readiness without failing task status."
 
 [[tasks]]
+name = "bmq-bridge-preflight"
+command = "python3 tools/seq_bmq_bridge.py preflight"
+description = "Check seq BMQ bridge socket/spool/DB configuration."
+
+[[tasks]]
+name = "bmq-bridge-on"
+command = "python3 tools/seq_bmq_bridge.py start"
+description = "Start seq BMQ bridge background daemon (durable async dispatch)."
+
+[[tasks]]
+name = "bmq-bridge-off"
+command = "python3 tools/seq_bmq_bridge.py stop"
+description = "Stop seq BMQ bridge daemon."
+
+[[tasks]]
+name = "bmq-bridge-restart"
+command = "sh -lc \"python3 tools/seq_bmq_bridge.py stop || true; python3 tools/seq_bmq_bridge.py start\""
+description = "Restart seq BMQ bridge daemon."
+
+[[tasks]]
+name = "bmq-bridge-status"
+command = "python3 tools/seq_bmq_bridge.py status"
+description = "Show seq BMQ bridge status and queue depth."
+
+[[tasks]]
+name = "bmq-bridge-once"
+command = "python3 tools/seq_bmq_bridge.py once"
+description = "Import seqd spool fallback and dispatch one batch."
+
+[[tasks]]
+name = "bmq-bridge-logs"
+command = "sh -lc \"tail -n 120 -f ${SEQ_BMQ_BRIDGE_LOG:-$HOME/code/seq/cli/cpp/out/logs/seq_bmq_bridge.log}\""
+description = "Tail seq BMQ bridge daemon logs."
+
+[[tasks]]
+name = "bmq-enq"
+command = "seq bmq-enq \"$@\""
+description = "Enqueue an async BMQ payload through seqd datagram hot path."
+
+[[tasks]]
 name = "zvec-server"
 command = "sh ./cli/zvec/run.sh start"
 description = "Start zvec vector search server (HTTP :8900)"
@@ -890,6 +930,22 @@ variables = [
   { key = "SEQ_REMOTE_HEALTH_TIMEOUT_S", default = "3.0" },
   { key = "SEQ_REMOTE_HEALTH_WATCH_S", default = "20" },
   { key = "SEQD_LAUNCHD_LABEL", default = "dev.nikiv.seqd" },
+  { key = "SEQ_BMQ_BRIDGE_SOCKET", default = "~/Library/Application Support/seq/bmq_bridge.sock" },
+  { key = "SEQ_BMQ_BRIDGE_SPOOL", default = "~/Library/Application Support/seq/bmq_bridge_spool.tsv" },
+  { key = "SEQ_BMQ_BRIDGE_DB", default = "~/.local/state/seq/bmq_bridge.sqlite3" },
+  { key = "SEQ_BMQ_BRIDGE_PIDFILE", default = "~/.local/state/seq/bmq_bridge.pid" },
+  { key = "SEQ_BMQ_BRIDGE_LOG", default = "~/code/seq/cli/cpp/out/logs/seq_bmq_bridge.log" },
+  { key = "SEQ_BMQ_BRIDGE_OUT", default = "~/.local/state/seq/bmq_bridge_out.jsonl" },
+  { key = "SEQ_BMQ_BACKEND", default = "jsonl" },
+  { key = "SEQ_BMQ_DISPATCH_CMD", default = "" },
+  { key = "SEQ_BMQ_DISPATCH_TIMEOUT_S", default = "3.0" },
+  { key = "SEQ_BMQ_POLL_SECONDS", default = "0.02" },
+  { key = "SEQ_BMQ_SPOOL_POLL_SECONDS", default = "0.25" },
+  { key = "SEQ_BMQ_DISPATCH_BATCH", default = "64" },
+  { key = "SEQ_BMQ_BMQTOOL_BIN", default = "bmqtool" },
+  { key = "SEQ_BMQ_BROKER", default = "tcp://localhost:30114" },
+  { key = "SEQ_BMQ_QUEUE_URI", default = "" },
+  { key = "SEQ_BMQ_BMQTOOL_TIMEOUT_S", default = "5.0" },
   { key = "KAR_SIGNAL_OUT", default = "~/repos/laude-institute/harbor/data/kar_signal/latest" },
   { key = "KAR_SIGNAL_SUMMARY", default = "~/repos/laude-institute/harbor/data/kar_signal/latest/summary.json" },
   { key = "KAR_SIGNAL_MAX_AGE_HOURS", default = "168" },
