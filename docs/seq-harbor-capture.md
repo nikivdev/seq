@@ -24,6 +24,38 @@ What this does:
 - validates key-capture prerequisites (`cgeventtap` binary, paths, ingest helper)
 - installs launchd supervision for all capture daemons
 
+### Remote-first mode (Linux ClickHouse host)
+
+If local disk usage is a problem, switch Python signal writers to remote ClickHouse:
+
+```bash
+# Required
+f env set --personal SEQ_MEM_REMOTE_URL=http://<linux-host>:8123
+f env set --personal SEQ_CH_HOST=<linux-host>
+f env set --personal SEQ_CH_PORT=9000
+f env set --personal SEQ_CH_DATABASE=seq
+
+# Enable remote-first capture
+f seq-harbor-install-remote
+f seq-harbor-run
+f seq-mem-sink-status
+```
+
+Behavior in remote mode:
+- writers send `JSONEachRow` directly to `${SEQ_MEM_REMOTE_URL}` (`seq.mem_events`)
+- if remote is down, rows are queued locally at:
+  - `${SEQ_MEM_REMOTE_FALLBACK_PATH}` (default `~/.local/state/seq/remote_fallback/seq_mem_fallback.jsonl`)
+- local seq mem tail is bounded by:
+  - `${SEQ_MEM_LOCAL_TAIL_ENABLED}` + `${SEQ_MEM_LOCAL_TAIL_MAX_BYTES}` (default 50MB)
+- recover queued rows later with:
+
+```bash
+f seq-mem-sink-drain
+```
+
+Detailed reference:
+- `docs/seq-remote-clickhouse.md`
+
 ## Start continuous capture
 
 ```bash

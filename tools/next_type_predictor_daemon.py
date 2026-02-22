@@ -25,6 +25,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from seq_mem_sink import append_seq_mem_rows
+
 DEFAULT_SEQ_MEM = str(Path("~/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl").expanduser())
 DEFAULT_INBOX = str((Path.home() / "Library" / "Application Support" / "Lin" / "intent-inbox.jsonl"))
 DEFAULT_STATE = str(Path("~/.local/state/seq/next_type_predictor_state.json").expanduser())
@@ -209,9 +211,7 @@ class Predictor:
             "name": name,
             "subject": json.dumps(subject_obj, ensure_ascii=True),
         }
-        self.cfg.seq_mem.parent.mkdir(parents=True, exist_ok=True)
-        with self.cfg.seq_mem.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row, ensure_ascii=True) + "\n")
+        append_seq_mem_rows([row], local_path=self.cfg.seq_mem)
 
     def _emit_widget(self, *, suggestion_id: str, suggestion_text: str, message: str, ttl_ms: int) -> None:
         now_ms = int(time.time() * 1000)

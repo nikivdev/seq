@@ -45,6 +45,9 @@ ActionType parse_action(std::string_view value) {
   if (v == "paste_text") {
     return ActionType::PasteText;
   }
+  if (v == "run_script" || v == "script") {
+    return ActionType::RunScript;
+  }
   if (v == "switch_window_or_app") {
     return ActionType::SwitchWindowOrApp;
   }
@@ -106,6 +109,8 @@ std::string action_to_string(ActionType action) {
       return "session_save";
     case ActionType::PasteText:
       return "paste_text";
+    case ActionType::RunScript:
+      return "run_script";
     case ActionType::SwitchWindowOrApp:
       return "switch_window_or_app";
     case ActionType::Keystroke:

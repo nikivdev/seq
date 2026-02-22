@@ -13,6 +13,7 @@ enum class ActionType {
   OpenUrl,
   SessionSave,
   PasteText,
+  RunScript,
   SwitchWindowOrApp,
   Keystroke,
   SelectMenuItem,

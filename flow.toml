@@ -72,9 +72,24 @@ command = "python3 tools/ch_mode.py off"
 description = "Set SEQ_CH_MODE=off (disable ClickHouse emission)."
 
 [[tasks]]
+name = "seq-mem-sink-status"
+command = "python3 tools/seq_mem_sink.py status --local-path ${SEQ_CH_MEM_PATH:-$HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl}"
+description = "Show seq mem sink mode (file/remote/dual) and fallback queue status."
+
+[[tasks]]
+name = "seq-mem-sink-drain"
+command = "python3 tools/seq_mem_sink.py drain --local-path ${SEQ_CH_MEM_PATH:-$HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl} --batch-size ${SEQ_MEM_REMOTE_DRAIN_BATCH_SIZE:-1000} --max-batches ${SEQ_MEM_REMOTE_DRAIN_MAX_BATCHES:-50}"
+description = "Drain fallback queue into remote ClickHouse when remote is available."
+
+[[tasks]]
 name = "rl-capture-on"
 command = "sh -lc \"f ch-mode file && f env set SEQ_CH_MEM_PATH=${SEQ_CH_MEM_PATH:-$HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl} && f env set SEQ_CH_LOG_PATH=${SEQ_CH_LOG_PATH:-$HOME/repos/ClickHouse/ClickHouse/user_files/seq_trace.jsonl} && f ch-mode-status\""
 description = "Enable low-latency local RL trace capture (file mode + local spool paths)."
+
+[[tasks]]
+name = "rl-capture-remote-on"
+command = "sh -lc \"set -e; remote_url=${SEQ_MEM_REMOTE_URL:-http://${SEQ_CH_HOST:?Set SEQ_CH_HOST}:${SEQ_CH_HTTP_PORT:-8123}}; f env set --personal SEQ_MEM_REMOTE_URL=$remote_url; f ch-mode native --host ${SEQ_CH_HOST:?Set SEQ_CH_HOST} --port ${SEQ_CH_PORT:-9000} --database ${SEQ_CH_DATABASE:-seq}; f env set --personal SEQ_MEM_SINK_MODE=remote; f seq-mem-sink-status\""
+description = "Enable remote-first RL capture: seqd native CH + Python writers via remote HTTP sink."
 
 [[tasks]]
 name = "rl-signal-tail"
@@ -408,6 +423,11 @@ command = "sh -lc \"set -e; python3 tools/ch_mode.py file; python3 tools/next_ty
 description = "Prepare seq for low-latency RL capture and install launchd supervision for capture daemons."
 
 [[tasks]]
+name = "seq-harbor-install-remote"
+command = "sh -lc \"set -e; remote_url=${SEQ_MEM_REMOTE_URL:-http://${SEQ_CH_HOST:?Set SEQ_CH_HOST}:${SEQ_CH_HTTP_PORT:-8123}}; f env set --personal SEQ_MEM_REMOTE_URL=$remote_url; python3 tools/ch_mode.py native --host ${SEQ_CH_HOST:?Set SEQ_CH_HOST} --port ${SEQ_CH_PORT:-9000} --database ${SEQ_CH_DATABASE:-seq}; f env set --personal SEQ_MEM_SINK_MODE=remote; python3 tools/next_type_tap_build.py; python3 tools/next_type_key_capture_daemon.py preflight; python3 tools/seq_capture_launchd.py install --service all; python3 tools/seq_mem_sink.py status\""
+description = "Install remote-first capture (Python writers -> remote ClickHouse, local file only as fallback queue)."
+
+[[tasks]]
 name = "seq-harbor-run"
 command = "sh -lc \"set -e; python3 tools/seq_capture_launchd.py restart --service all; python3 tools/seq_capture_launchd.py status --service all\""
 description = "Start/restart supervised continuous capture + prediction via launchd (keystrokes + predictor + Kar + agent Q/A + watchdog)."
@@ -728,9 +748,23 @@ variables = [
   { key = "SEQ_CH_MODE", default = "file" },
   { key = "SEQ_CH_HOST", default = "127.0.0.1" },
   { key = "SEQ_CH_PORT", default = "9000" },
+  { key = "SEQ_CH_HTTP_PORT", default = "8123" },
   { key = "SEQ_CH_DATABASE", default = "seq" },
   { key = "SEQ_CH_MEM_PATH" },
   { key = "SEQ_CH_LOG_PATH" },
+  { key = "SEQ_MEM_SINK_MODE", default = "auto" },
+  { key = "SEQ_MEM_REMOTE_URL" },
+  { key = "SEQ_MEM_REMOTE_DB", default = "seq" },
+  { key = "SEQ_MEM_REMOTE_TABLE", default = "mem_events" },
+  { key = "SEQ_MEM_REMOTE_USER" },
+  { key = "SEQ_MEM_REMOTE_PASSWORD" },
+  { key = "SEQ_MEM_REMOTE_TIMEOUT_S", default = "2.5" },
+  { key = "SEQ_MEM_REMOTE_VERIFY_TLS", default = "true" },
+  { key = "SEQ_MEM_REMOTE_FALLBACK_PATH", default = "~/.local/state/seq/remote_fallback/seq_mem_fallback.jsonl" },
+  { key = "SEQ_MEM_LOCAL_TAIL_ENABLED", default = "true" },
+  { key = "SEQ_MEM_LOCAL_TAIL_MAX_BYTES", default = "52428800" },
+  { key = "SEQ_MEM_REMOTE_DRAIN_BATCH_SIZE", default = "1000" },
+  { key = "SEQ_MEM_REMOTE_DRAIN_MAX_BATCHES", default = "50" },
   { key = "SEQ_AGENT_QA_CLAUDE_DIR", default = "~/.claude/projects" },
   { key = "SEQ_AGENT_QA_CODEX_DIR", default = "~/.codex/sessions" },
   { key = "SEQ_AGENT_QA_STATE", default = "~/.local/state/seq/agent_qa_ingest_state.json" },

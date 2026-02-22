@@ -24,6 +24,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from seq_mem_sink import append_seq_mem_rows
+
 DEFAULT_CLAUDE_DIR = str(Path("~/.claude/projects").expanduser())
 DEFAULT_CODEX_DIR = str(Path("~/.codex/sessions").expanduser())
 DEFAULT_SEQ_MEM_PATH = str(
@@ -361,6 +363,9 @@ class Ingestor:
 
     def _append_jsonl(self, path: Path, rows: list[dict[str, Any]]) -> None:
         if not rows:
+            return
+        if path.resolve() == self.cfg.seq_mem_path.resolve():
+            append_seq_mem_rows(rows, local_path=path)
             return
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as fh:

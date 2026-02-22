@@ -27,6 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from seq_mem_sink import append_seq_mem_rows
+
 DEFAULT_SEQ_MEM = str(Path("~/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl").expanduser())
 DEFAULT_STATE = str(Path("~/.local/state/seq/next_type_context_probe_state.json").expanduser())
 DEFAULT_PIDFILE = str(Path("~/.local/state/seq/next_type_context_probe.pid").expanduser())
@@ -206,9 +208,7 @@ def _emit_context_event(seq_mem: Path, context: dict[str, Any]) -> None:
         "name": "next_type.context.v1",
         "subject": json.dumps(context, ensure_ascii=True),
     }
-    seq_mem.parent.mkdir(parents=True, exist_ok=True)
-    with seq_mem.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(row, ensure_ascii=True) + "\n")
+    append_seq_mem_rows([row], local_path=seq_mem)
 
 
 class ContextProbe:

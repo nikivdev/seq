@@ -5,6 +5,7 @@
 #include "trace.h"
 #include "strings.h"
 
+#include <cerrno>
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
@@ -272,8 +273,39 @@ bool post_unicode_chunk(std::u16string_view chunk, std::optional<pid_t> pid) {
   return true;
 }
 
+int env_int_clamped(const char* name, int def, int min_v, int max_v) {
+  const char* raw = ::getenv(name);
+  if (!raw || !*raw) return def;
+  char* end = nullptr;
+  errno = 0;
+  long parsed = std::strtol(raw, &end, 10);
+  if (errno != 0 || !end || *end != '\0') return def;
+  if (parsed < min_v) return min_v;
+  if (parsed > max_v) return max_v;
+  return static_cast<int>(parsed);
+}
+
+int type_text_chunk_units() {
+  static int units = env_int_clamped("SEQ_TYPE_TEXT_CHUNK_UNITS", 64, 1, 256);
+  return units;
+}
+
+int type_text_delay_us() {
+  static int us = env_int_clamped("SEQ_TYPE_TEXT_DELAY_US", 800, 0, 50000);
+  return us;
+}
+
+size_t type_text_max_bytes() {
+  static size_t max_bytes = static_cast<size_t>(
+      env_int_clamped("SEQ_TYPE_TEXT_MAX_BYTES", 16384, 1, 1024 * 1024));
+  return max_bytes;
+}
+
 Result type_text_impl(std::string_view text, std::optional<pid_t> pid) {
   if (text.empty()) return {true, ""};
+  if (text.size() > type_text_max_bytes()) {
+    return {false, "text_too_long"};
+  }
   @autoreleasepool {
     std::string text_str(text);
     NSString* ns = [NSString stringWithUTF8String:text_str.c_str()];
@@ -281,20 +313,23 @@ Result type_text_impl(std::string_view text, std::optional<pid_t> pid) {
       return {false, "invalid_utf8"};
     }
     NSUInteger len = [ns length];
-    const NSUInteger kChunk = 64;
-    for (NSUInteger i = 0; i < len; i += kChunk) {
-      NSRange range = NSMakeRange(i, std::min(kChunk, len - i));
-      NSString* part = [ns substringWithRange:range];
-      std::u16string chunk;
-      chunk.resize((size_t)[part length]);
+    const NSUInteger chunk_units = static_cast<NSUInteger>(type_text_chunk_units());
+    const int delay_us = type_text_delay_us();
+    std::u16string chunk;
+    chunk.reserve(static_cast<size_t>(chunk_units));
+    for (NSUInteger i = 0; i < len; i += chunk_units) {
+      NSUInteger n = std::min(chunk_units, len - i);
+      chunk.resize(static_cast<size_t>(n));
       if (!chunk.empty()) {
-        [part getCharacters:(unichar*)chunk.data() range:NSMakeRange(0, [part length])];
+        [ns getCharacters:(unichar*)chunk.data() range:NSMakeRange(i, n)];
         if (!post_unicode_chunk(std::u16string_view(chunk), pid)) {
           return {false, "type_failed"};
         }
       }
       // Small pacing to avoid dropped events under heavy UI load.
-      usleep(800);
+      if (delay_us > 0) {
+        usleep(static_cast<useconds_t>(delay_us));
+      }
     }
   }
   return {true, ""};
@@ -571,9 +606,12 @@ Result replace_typed_text_local(int delete_count, std::string_view replacement, 
   }
   std::optional<pid_t> target;
   if (pid > 0) target = pid;
+  const int delay_us = type_text_delay_us();
   for (int i = 0; i < delete_count; ++i) {
     post_key((CGKeyCode)kVK_Delete, 0, target);
-    usleep(800);
+    if (delay_us > 0) {
+      usleep(static_cast<useconds_t>(delay_us));
+    }
   }
   return type_text_impl(replacement, target);
 }
@@ -1932,6 +1970,26 @@ Result run_paste_text(const macros::Macro& macro) {
   return {true, ""};
 }
 
+Result run_script(const macros::Macro& macro) {
+  std::string command = strings::trim(macro.arg);
+  if (command.empty()) {
+    return {false, "run_script missing arg"};
+  }
+
+  trace::event("run_script", command);
+  std::string error;
+  int code = process::run({"/bin/bash", "-lc", command}, &error);
+  if (code != 0) {
+    std::string msg = "run_script failed (exit " + std::to_string(code) + ")";
+    if (!error.empty()) {
+      msg.append(": ");
+      msg.append(error);
+    }
+    return {false, msg};
+  }
+  return {true, ""};
+}
+
 namespace {
 bool wait_frontmost(std::string_view expected_app, int timeout_ms) {
   if (expected_app.empty()) {
@@ -2112,6 +2170,8 @@ actions::Result run_step_as_macro(const macros::Step& step) {
       return run_session_save(tmp);
     case macros::ActionType::PasteText:
       return run_paste_text(tmp);
+    case macros::ActionType::RunScript:
+      return run_script(tmp);
     case macros::ActionType::SwitchWindowOrApp:
       return switch_window_or_app_impl();
     case macros::ActionType::Keystroke:
@@ -2310,6 +2370,8 @@ Result run(const macros::Macro& macro) {
       return run_session_save(macro);
     case macros::ActionType::PasteText:
       return run_paste_text(macro);
+    case macros::ActionType::RunScript:
+      return run_script(macro);
     case macros::ActionType::SwitchWindowOrApp:
       return switch_window_or_app_impl();
     case macros::ActionType::Keystroke:

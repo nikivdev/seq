@@ -19,6 +19,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from seq_mem_sink import append_seq_mem_rows
+
 
 def now_ms() -> int:
     return int(time.time() * 1000)
@@ -251,11 +253,7 @@ def to_event(line: str, source: str, session_id: str | None, project_path: str |
 def flush(path: Path, batch: list[dict[str, Any]]) -> None:
     if not batch:
         return
-    lines = [json.dumps(row, ensure_ascii=True) for row in batch]
-    blob = "\n".join(lines) + "\n"
-    ensure_parent(path)
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(blob)
+    append_seq_mem_rows(batch, local_path=path)
 
 
 def _make_burst_event(burst: dict[str, Any], session_id: str, source: str) -> dict[str, Any]:

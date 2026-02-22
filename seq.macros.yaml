@@ -269,16 +269,6 @@
   action: open_url
   arg: "https://railway.com"
   app: "Arc"
-- name: "Move selection to LM Studio"
-  action: sequence
-  arg: ""
-  steps:
-    - action: keystroke
-      arg: "cmd+c"
-    - action: open_app
-      arg: "LM Studio"
-    - action: keystroke
-      arg: "cmd+v"
 - name: "arc: cloudflare.com"
   action: open_url
   arg: "https://cloudflare.com"
@@ -310,94 +300,6 @@
 - name: "arc: grok.com"
   action: open_url
   arg: "https://grok.com"
-  app: "Arc"
-- name: "arc: console.groq.com"
-  action: open_url
-  arg: "https://console.groq.com"
-  app: "Arc"
-- name: "arc: axiom.co"
-  action: open_url
-  arg: "https://axiom.co"
-  app: "Arc"
-- name: "arc: sentry.com"
-  action: open_url
-  arg: "https://sentry.com"
-  app: "Arc"
-- name: "arc: dodopayments.com"
-  action: open_url
-  arg: "https://dodopayments.com"
-  app: "Arc"
-- name: "arc: stripe.com"
-  action: open_url
-  arg: "https://stripe.com"
-  app: "Arc"
-- name: "arc: lovable.dev"
-  action: open_url
-  arg: "https://lovable.dev"
-  app: "Arc"
-- name: "arc: openrouter.ai"
-  action: open_url
-  arg: "https://openrouter.ai"
-  app: "Arc"
-- name: "arc: aws.amazon.com"
-  action: open_url
-  arg: "https://aws.amazon.com"
-  app: "Arc"
-- name: "arc: daytona.com"
-  action: open_url
-  arg: "https://daytona.com"
-  app: "Arc"
-- name: "arc: maps.google.com"
-  action: open_url
-  arg: "https://maps.google.com"
-  app: "Arc"
-- name: "arc: clickhouse"
-  action: open_url
-  arg: "https://clickhouse.com"
-  app: "Arc"
-- name: "arc: primeintellect.ai"
-  action: open_url
-  arg: "https://primeintellect.ai"
-  app: "Arc"
-- name: "arc: modal.com"
-  action: open_url
-  arg: "https://modal.com"
-  app: "Arc"
-- name: "arc: huggingface.com"
-  action: open_url
-  arg: "https://huggingface.com"
-  app: "Arc"
-- name: "arc: leap.new"
-  action: open_url
-  arg: "https://leap.new"
-  app: "Arc"
-- name: "arc: cloud.cerebras.ai"
-  action: open_url
-  arg: "https://cloud.cerebras.ai"
-  app: "Arc"
-- name: "arc: app.planetscale.com"
-  action: open_url
-  arg: "https://app.planetscale.com"
-  app: "Arc"
-- name: "arc: fal.ai"
-  action: open_url
-  arg: "https://fal.ai"
-  app: "Arc"
-- name: "arc: hetzner.com"
-  action: open_url
-  arg: "https://hetzner.com"
-  app: "Arc"
-- name: "arc: expo"
-  action: open_url
-  arg: "https://expo.dev"
-  app: "Arc"
-- name: "arc: resend.com"
-  action: open_url
-  arg: "https://resend.com"
-  app: "Arc"
-- name: "arc: console.cloud.google.com"
-  action: open_url
-  arg: "https://console.cloud.google.com"
   app: "Arc"
 - name: "arc: dashboard.electric-sql.cloud"
   action: open_url
@@ -476,3 +378,6 @@
 - name: "telegram: saved"
   action: open_url
   arg: "tg://resolve?domain=nikivi"
+- name: "dia: save current url to docs"
+  action: todo
+  arg: ""

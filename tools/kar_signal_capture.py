@@ -27,6 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from seq_mem_sink import append_seq_mem_rows
+
 DEFAULT_SEQ_MEM_PATH = str(Path("~/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl").expanduser())
 DEFAULT_STATE_PATH = str(Path("~/.local/state/seq/kar_signal_state.json").expanduser())
 DEFAULT_PIDFILE = str(Path("~/.local/state/seq/kar_signal.pid").expanduser())
@@ -133,10 +135,7 @@ class KarSignalCapture:
         }
 
     def _append_row(self, row: dict[str, Any]) -> None:
-        self.cfg.seq_mem_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.cfg.seq_mem_path.open("a", encoding="utf-8") as f:
-            f.write(self._safe_json(row))
-            f.write("\n")
+        append_seq_mem_rows([row], local_path=self.cfg.seq_mem_path)
         self.rows_emitted += 1
 
     def _emit_intent(

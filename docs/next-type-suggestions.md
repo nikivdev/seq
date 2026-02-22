@@ -53,6 +53,10 @@ Implemented in:
 - Seq path avoids clipboard churn and restore races.
 - Seq path uses direct key event injection and supports targeted pid mode.
 - Fallback keeps behavior safe when seqd is not running.
+- Typing latency/reliability can be tuned per-machine:
+  - `SEQ_TYPE_TEXT_DELAY_US` (default `800`)
+  - `SEQ_TYPE_TEXT_CHUNK_UNITS` (default `64`)
+  - `SEQ_TYPE_TEXT_MAX_BYTES` (default `16384`)
 
 ## Quick test
 
@@ -130,3 +134,4 @@ seq rpc '{"op":"replace_typed","args":{"delete_count":5,"text":"world"}}'
 - Keep suggestion dedupe by stable id/context hash.
 - Hard cap injected text length for accidental large payloads.
 - Always preserve fallback path when seqd is unavailable.
+- Lin dedupes repeated next-type telemetry rows by `stage + intent_id/completion_key`.
