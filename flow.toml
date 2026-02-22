@@ -88,7 +88,7 @@ description = "Enable low-latency local RL trace capture (file mode + local spoo
 
 [[tasks]]
 name = "rl-capture-remote-on"
-command = "sh -lc \"set -e; env_file=$HOME/.config/flow/env-local/personal/production.env; ch_host=$(awk -F= '$1==\\\"SEQ_CH_HOST\\\" {sub(/^[^=]*=/,\\\"\\\"); print; exit}' $env_file 2>/dev/null); ch_port=$(awk -F= '$1==\\\"SEQ_CH_PORT\\\" {sub(/^[^=]*=/,\\\"\\\"); print; exit}' $env_file 2>/dev/null); ch_http_port=$(awk -F= '$1==\\\"SEQ_CH_HTTP_PORT\\\" {sub(/^[^=]*=/,\\\"\\\"); print; exit}' $env_file 2>/dev/null); ch_db=$(awk -F= '$1==\\\"SEQ_CH_DATABASE\\\" {sub(/^[^=]*=/,\\\"\\\"); print; exit}' $env_file 2>/dev/null); remote_url=$(awk -F= '$1==\\\"SEQ_MEM_REMOTE_URL\\\" {sub(/^[^=]*=/,\\\"\\\"); print; exit}' $env_file 2>/dev/null); [ -n \\\"$ch_host\\\" ] || { echo 'Set SEQ_CH_HOST first'; exit 1; }; [ -n \\\"$ch_port\\\" ] || ch_port=9000; [ -n \\\"$ch_http_port\\\" ] || ch_http_port=8123; [ -n \\\"$ch_db\\\" ] || ch_db=seq; [ -n \\\"$remote_url\\\" ] || remote_url=http://$ch_host:$ch_http_port; f env set --personal SEQ_MEM_REMOTE_URL=$remote_url; python3 tools/ch_mode.py native --host $ch_host --port $ch_port --database $ch_db; f env set --personal SEQ_MEM_SINK_MODE=remote; python3 tools/seq_mem_sink.py status\""
+command = "python3 tools/seq_remote_on.py"
 description = "Enable remote-first RL capture: seqd native CH + Python writers via remote HTTP sink."
 
 [[tasks]]
@@ -424,7 +424,7 @@ description = "Prepare seq for low-latency RL capture and install launchd superv
 
 [[tasks]]
 name = "seq-harbor-install-remote"
-command = "sh -lc \"set -e; env_file=$HOME/.config/flow/env-local/personal/production.env; ch_host=$(awk -F= '$1==\\\"SEQ_CH_HOST\\\" {sub(/^[^=]*=/,\\\"\\\"); print; exit}' $env_file 2>/dev/null); ch_port=$(awk -F= '$1==\\\"SEQ_CH_PORT\\\" {sub(/^[^=]*=/,\\\"\\\"); print; exit}' $env_file 2>/dev/null); ch_http_port=$(awk -F= '$1==\\\"SEQ_CH_HTTP_PORT\\\" {sub(/^[^=]*=/,\\\"\\\"); print; exit}' $env_file 2>/dev/null); ch_db=$(awk -F= '$1==\\\"SEQ_CH_DATABASE\\\" {sub(/^[^=]*=/,\\\"\\\"); print; exit}' $env_file 2>/dev/null); remote_url=$(awk -F= '$1==\\\"SEQ_MEM_REMOTE_URL\\\" {sub(/^[^=]*=/,\\\"\\\"); print; exit}' $env_file 2>/dev/null); [ -n \\\"$ch_host\\\" ] || { echo 'Set SEQ_CH_HOST first'; exit 1; }; [ -n \\\"$ch_port\\\" ] || ch_port=9000; [ -n \\\"$ch_http_port\\\" ] || ch_http_port=8123; [ -n \\\"$ch_db\\\" ] || ch_db=seq; [ -n \\\"$remote_url\\\" ] || remote_url=http://$ch_host:$ch_http_port; f env set --personal SEQ_MEM_REMOTE_URL=$remote_url; python3 tools/ch_mode.py native --host $ch_host --port $ch_port --database $ch_db; f env set --personal SEQ_MEM_SINK_MODE=remote; python3 tools/next_type_tap_build.py; python3 tools/next_type_key_capture_daemon.py preflight; python3 tools/seq_capture_launchd.py install --service all; python3 tools/seq_mem_sink.py status\""
+command = "python3 tools/seq_remote_on.py --install"
 description = "Install remote-first capture (Python writers -> remote ClickHouse, local file only as fallback queue)."
 
 [[tasks]]
