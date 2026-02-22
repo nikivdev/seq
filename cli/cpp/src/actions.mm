@@ -1959,14 +1959,9 @@ Result run_paste_text(const macros::Macro& macro) {
   if (code != 0) {
     return {false, "pbcopy failed"};
   }
-  code = process::run(
-      {"/usr/bin/osascript",
-       "-e",
-       "tell application \"System Events\" to keystroke \"v\" using command down"},
-      &error);
-  if (code != 0) {
-    return {false, "paste keystroke failed"};
-  }
+  // Use the same native key injection path as keystroke actions.
+  // AppleScript adds overhead and can fail when automation permissions drift.
+  post_cmd_key((CGKeyCode)kVK_ANSI_V);
   return {true, ""};
 }
 
