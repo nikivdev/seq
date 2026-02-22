@@ -11,6 +11,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Dict
 
 
 DEFAULT_LABEL_PREFIX = "dev.nikiv.seq-capture"
@@ -186,14 +187,44 @@ def _pidfile_for_service(svc: ServiceDef) -> Path:
     return Path(raw).expanduser().resolve()
 
 
+def _read_personal_env_store() -> Dict[str, str]:
+    env_path = Path.home() / ".config" / "flow" / "env-local" / "personal" / "production.env"
+    if not env_path.exists():
+        return {}
+    out: Dict[str, str] = {}
+    try:
+        for line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, raw = line.split("=", 1)
+            key = key.strip()
+            if not key:
+                continue
+            value = raw.strip()
+            if len(value) >= 2 and (
+                (value[0] == '"' and value[-1] == '"')
+                or (value[0] == "'" and value[-1] == "'")
+            ):
+                value = value[1:-1]
+            out[key] = value
+    except Exception:
+        return {}
+    return out
+
+
 def _capture_env() -> dict[str, str]:
+    flow_env = _read_personal_env_store()
     env: dict[str, str] = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"),
         "PYTHONUNBUFFERED": os.environ.get("PYTHONUNBUFFERED", "1"),
     }
     for key in PASS_ENV_KEYS:
-        if key in os.environ and os.environ[key] != "":
-            env[key] = os.environ[key]
+        value = os.environ.get(key)
+        if value is None or value == "":
+            value = flow_env.get(key, "")
+        if value != "":
+            env[key] = value
     if "SEQ_CH_MEM_PATH" not in env:
         env["SEQ_CH_MEM_PATH"] = str(Path("~/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl").expanduser())
     if "SEQ_CH_LOG_PATH" not in env:
