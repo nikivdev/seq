@@ -231,6 +231,16 @@ name = "seq-health-report"
 command = "sh -lc \"cat ${SEQ_HEALTH_REPORT:-$HOME/.local/state/seq/seq_health_report.json}\""
 description = "Show latest seq-health report JSON."
 
+[[tasks]]
+name = "seq-remote-health"
+command = "python3 tools/seq_remote_health.py --max-age-s ${SEQ_REMOTE_HEALTH_MAX_AGE_S:-90} --max-fallback-bytes ${SEQ_REMOTE_HEALTH_MAX_FALLBACK_BYTES:-1000000} --timeout-s ${SEQ_REMOTE_HEALTH_TIMEOUT_S:-3.0}"
+description = "Strict remote capture health (mem+trace freshness on Linux ClickHouse + seqd remote wiring)."
+
+[[tasks]]
+name = "seq-remote-health-watch"
+command = "python3 tools/seq_remote_health.py --watch ${SEQ_REMOTE_HEALTH_WATCH_S:-20} --max-age-s ${SEQ_REMOTE_HEALTH_MAX_AGE_S:-90} --max-fallback-bytes ${SEQ_REMOTE_HEALTH_MAX_FALLBACK_BYTES:-1000000} --timeout-s ${SEQ_REMOTE_HEALTH_TIMEOUT_S:-3.0}"
+description = "Watch remote capture health continuously."
+
 
 [[tasks]]
 name = "agent-qa-capture-on"
@@ -854,6 +864,10 @@ variables = [
   { key = "SEQ_HEALTH_MIN_KAR_LINK_RATE", default = "0.75" },
   { key = "SEQ_HEALTH_WATCHDOG_MAX_AGE_MINUTES", default = "30" },
   { key = "SEQ_HEALTH_REPAIR_WAIT_S", default = "1.0" },
+  { key = "SEQ_REMOTE_HEALTH_MAX_AGE_S", default = "90" },
+  { key = "SEQ_REMOTE_HEALTH_MAX_FALLBACK_BYTES", default = "1000000" },
+  { key = "SEQ_REMOTE_HEALTH_TIMEOUT_S", default = "3.0" },
+  { key = "SEQ_REMOTE_HEALTH_WATCH_S", default = "20" },
   { key = "SEQD_LAUNCHD_LABEL", default = "dev.nikiv.seqd" },
   { key = "KAR_SIGNAL_OUT", default = "~/repos/laude-institute/harbor/data/kar_signal/latest" },
   { key = "KAR_SIGNAL_SUMMARY", default = "~/repos/laude-institute/harbor/data/kar_signal/latest/summary.json" },

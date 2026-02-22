@@ -23,11 +23,51 @@ from typing import Any
 
 DEFAULT_LOCAL_MEM = Path("~/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl").expanduser()
 DEFAULT_FALLBACK = Path("~/.local/state/seq/remote_fallback/seq_mem_fallback.jsonl").expanduser()
+FLOW_PERSONAL_ENV = Path.home() / ".config" / "flow" / "env-local" / "personal" / "production.env"
+_FLOW_ENV_CACHE: dict[str, str] | None = None
+
+
+def _read_flow_personal_env() -> dict[str, str]:
+    global _FLOW_ENV_CACHE
+    if _FLOW_ENV_CACHE is not None:
+        return _FLOW_ENV_CACHE
+    out: dict[str, str] = {}
+    if not FLOW_PERSONAL_ENV.exists():
+        _FLOW_ENV_CACHE = out
+        return out
+    try:
+        for line in FLOW_PERSONAL_ENV.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, raw = line.split("=", 1)
+            key = key.strip()
+            if not key:
+                continue
+            value = raw.strip()
+            if len(value) >= 2 and (
+                (value[0] == '"' and value[-1] == '"')
+                or (value[0] == "'" and value[-1] == "'")
+            ):
+                value = value[1:-1]
+            out[key] = value
+    except Exception:
+        pass
+    _FLOW_ENV_CACHE = out
+    return out
+
+
+def _env_or_flow(key: str, default: str = "") -> str:
+    value = os.environ.get(key)
+    if value is not None and value != "":
+        return value
+    flow = _read_flow_personal_env()
+    return flow.get(key, default)
 
 
 def _env_bool(key: str, default: bool) -> bool:
-    value = os.environ.get(key)
-    if value is None:
+    value = _env_or_flow(key)
+    if value is None or value == "":
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
@@ -55,20 +95,20 @@ class SinkConfig:
     @classmethod
     def from_env(cls, local_path: Path) -> "SinkConfig":
         return cls(
-            mode=(os.environ.get("SEQ_MEM_SINK_MODE", "auto").strip().lower() or "auto"),
+            mode=(_env_or_flow("SEQ_MEM_SINK_MODE", "auto").strip().lower() or "auto"),
             local_path=local_path.expanduser(),
-            remote_url=(os.environ.get("SEQ_MEM_REMOTE_URL", "").strip()),
-            remote_db=(os.environ.get("SEQ_MEM_REMOTE_DB", "seq").strip() or "seq"),
-            remote_table=(os.environ.get("SEQ_MEM_REMOTE_TABLE", "mem_events").strip() or "mem_events"),
-            remote_user=(os.environ.get("SEQ_MEM_REMOTE_USER", "").strip()),
-            remote_password=(os.environ.get("SEQ_MEM_REMOTE_PASSWORD", "").strip()),
-            remote_timeout_s=max(0.2, float(os.environ.get("SEQ_MEM_REMOTE_TIMEOUT_S", "2.5"))),
+            remote_url=(_env_or_flow("SEQ_MEM_REMOTE_URL", "").strip()),
+            remote_db=(_env_or_flow("SEQ_MEM_REMOTE_DB", "seq").strip() or "seq"),
+            remote_table=(_env_or_flow("SEQ_MEM_REMOTE_TABLE", "mem_events").strip() or "mem_events"),
+            remote_user=(_env_or_flow("SEQ_MEM_REMOTE_USER", "").strip()),
+            remote_password=(_env_or_flow("SEQ_MEM_REMOTE_PASSWORD", "").strip()),
+            remote_timeout_s=max(0.2, float(_env_or_flow("SEQ_MEM_REMOTE_TIMEOUT_S", "2.5"))),
             remote_verify_tls=_env_bool("SEQ_MEM_REMOTE_VERIFY_TLS", True),
             fallback_path=Path(
-                os.environ.get("SEQ_MEM_REMOTE_FALLBACK_PATH", str(DEFAULT_FALLBACK))
+                _env_or_flow("SEQ_MEM_REMOTE_FALLBACK_PATH", str(DEFAULT_FALLBACK))
             ).expanduser(),
             local_tail_enabled=_env_bool("SEQ_MEM_LOCAL_TAIL_ENABLED", True),
-            local_tail_max_bytes=max(0, int(os.environ.get("SEQ_MEM_LOCAL_TAIL_MAX_BYTES", str(50 * 1024 * 1024)))),
+            local_tail_max_bytes=max(0, int(_env_or_flow("SEQ_MEM_LOCAL_TAIL_MAX_BYTES", str(50 * 1024 * 1024)))),
         )
 
     def effective_mode(self) -> str:
@@ -255,11 +295,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Seq mem sink utility.")
     sub = parser.add_subparsers(dest="command", required=True)
     p_status = sub.add_parser("status", help="Show sink config/status.")
-    p_status.add_argument("--local-path", default=os.environ.get("SEQ_CH_MEM_PATH", str(DEFAULT_LOCAL_MEM)))
+    p_status.add_argument("--local-path", default=_env_or_flow("SEQ_CH_MEM_PATH", str(DEFAULT_LOCAL_MEM)))
     p_drain = sub.add_parser("drain", help="Drain fallback queue to remote.")
-    p_drain.add_argument("--local-path", default=os.environ.get("SEQ_CH_MEM_PATH", str(DEFAULT_LOCAL_MEM)))
-    p_drain.add_argument("--batch-size", type=int, default=int(os.environ.get("SEQ_MEM_REMOTE_DRAIN_BATCH_SIZE", "1000")))
-    p_drain.add_argument("--max-batches", type=int, default=int(os.environ.get("SEQ_MEM_REMOTE_DRAIN_MAX_BATCHES", "50")))
+    p_drain.add_argument("--local-path", default=_env_or_flow("SEQ_CH_MEM_PATH", str(DEFAULT_LOCAL_MEM)))
+    p_drain.add_argument("--batch-size", type=int, default=int(_env_or_flow("SEQ_MEM_REMOTE_DRAIN_BATCH_SIZE", "1000")))
+    p_drain.add_argument("--max-batches", type=int, default=int(_env_or_flow("SEQ_MEM_REMOTE_DRAIN_MAX_BATCHES", "50")))
     return parser.parse_args()
 
 
