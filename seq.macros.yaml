@@ -59,15 +59,6 @@
 - name: "Go to test macro"
   action: todo
   arg: ""
-- name: "paste: create flow.toml task for this and tell me what to run"
-  action: paste_text
-  arg: "create flow.toml task for this and tell me what to run"
-- name: "Create new contact"
-  action: todo
-  arg: ""
-- name: "New Spark email"
-  action: todo
-  arg: ""
 - name: "open Safari new tab"
   action: sequence
   arg: ""
@@ -316,14 +307,6 @@
 - name: "arc: x.com (likes)"
   action: open_url
   arg: "https://x.com"
-  app: "Arc"
-- name: "arc: gmail.com"
-  action: open_url
-  arg: "https://gmail.com"
-  app: "Arc"
-- name: "arc: v0.app"
-  action: open_url
-  arg: "https://v0.app"
   app: "Arc"
 - name: "w: GoDoc"
   action: open_url

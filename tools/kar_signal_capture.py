@@ -10,6 +10,7 @@ Derived events emitted:
 - kar.intent.v1
 - kar.outcome.v1
 - kar.override.v1
+- zmode.policy.override.v1 (derived correction signal for z-mode policy RL)
 """
 
 from __future__ import annotations
@@ -41,6 +42,10 @@ SOURCE_NAMES = {
     "cli.open_app_toggle.action",
     "app.activate",
 }
+ZMODE_POLICY_NAMES = {
+    "zmode.policy.decision.v1",
+    "zmode.policy.apply.v1",
+}
 
 
 @dataclass
@@ -53,6 +58,12 @@ class PendingIntent:
     target_app: str
     source_event_id: str
     expired_at_ms: int
+    mapping_epoch_id: str = ""
+    zmode_policy_decision_id: str = ""
+    candidate_id: str = ""
+    candidate_key: str = ""
+    candidate_action: str = ""
+    policy_apply_ts_ms: int = 0
     resolved: bool = False
     overridden_by: str = ""
 
@@ -66,7 +77,24 @@ class Config:
     poll_seconds: float
     outcome_window_ms: int
     override_window_ms: int
+    zmode_decision_ttl_ms: int
     reset_state: bool
+
+
+@dataclass
+class ZModeSelection:
+    key: str
+    action: str
+    candidate_id: str
+    note: str
+
+
+@dataclass
+class ActiveZModePolicy:
+    decision_id: str
+    mapping_epoch_id: str
+    applied_ts_ms: int
+    selections_by_action: dict[str, ZModeSelection]
 
 
 class KarSignalCapture:
@@ -76,6 +104,8 @@ class KarSignalCapture:
         self.offset = 0
         self.inode = 0
         self.pending: dict[str, PendingIntent] = {}
+        self.zmode_decisions: dict[str, dict[str, Any]] = {}
+        self.active_zmode: ActiveZModePolicy | None = None
 
         self.rows_seen = 0
         self.rows_emitted = 0
@@ -118,6 +148,153 @@ class KarSignalCapture:
             out[k.strip()] = v.strip()
         return out
 
+    def _normalize_action(self, action: str) -> str:
+        return " ".join((action or "").strip().split())
+
+    def _prune_zmode_decisions(self, now_ts_ms: int) -> None:
+        ttl = max(60_000, int(self.cfg.zmode_decision_ttl_ms))
+        min_ts = now_ts_ms - ttl
+        keep_active = self.active_zmode.decision_id if self.active_zmode else ""
+        stale: list[str] = []
+        for decision_id, payload in self.zmode_decisions.items():
+            ts_ms = int(payload.get("ts_ms") or 0)
+            if ts_ms < min_ts and decision_id != keep_active:
+                stale.append(decision_id)
+        for decision_id in stale:
+            self.zmode_decisions.pop(decision_id, None)
+
+    def _record_zmode_decision(self, row: dict[str, Any], subject: dict[str, Any]) -> None:
+        decision_id = str(subject.get("decision_id") or "")
+        mapping_epoch_id = str(subject.get("mapping_epoch_id") or "")
+        if not decision_id or not mapping_epoch_id:
+            return
+        ts_ms = int(subject.get("ts_ms") or row.get("ts_ms") or int(time.time() * 1000))
+        selected = subject.get("selected_bindings")
+        by_action: dict[str, ZModeSelection] = {}
+        if isinstance(selected, list):
+            for item in selected:
+                if not isinstance(item, dict):
+                    continue
+                action = str(item.get("action") or "")
+                candidate_id = str(item.get("candidate_id") or "")
+                key = str(item.get("key") or "")
+                note = str(item.get("note") or "")
+                if not action or not candidate_id:
+                    continue
+                norm = self._normalize_action(action)
+                if not norm:
+                    continue
+                by_action[norm] = ZModeSelection(
+                    key=key,
+                    action=action,
+                    candidate_id=candidate_id,
+                    note=note,
+                )
+        self.zmode_decisions[decision_id] = {
+            "decision_id": decision_id,
+            "mapping_epoch_id": mapping_epoch_id,
+            "ts_ms": ts_ms,
+            "selections_by_action": by_action,
+        }
+        self._prune_zmode_decisions(ts_ms)
+
+    def _activate_zmode_policy(self, row: dict[str, Any], subject: dict[str, Any]) -> None:
+        compile_ok = bool(subject.get("compile_ok"))
+        if not compile_ok:
+            return
+        decision_id = str(subject.get("decision_id") or "")
+        mapping_epoch_id = str(subject.get("mapping_epoch_id") or "")
+        if not decision_id or not mapping_epoch_id:
+            return
+        ts_ms = int(subject.get("ts_ms") or row.get("ts_ms") or int(time.time() * 1000))
+        decision_payload = self.zmode_decisions.get(decision_id, {})
+        selections_by_action = decision_payload.get("selections_by_action")
+        if not isinstance(selections_by_action, dict):
+            selections_by_action = {}
+        self.active_zmode = ActiveZModePolicy(
+            decision_id=decision_id,
+            mapping_epoch_id=mapping_epoch_id,
+            applied_ts_ms=ts_ms,
+            selections_by_action=selections_by_action,
+        )
+        self._prune_zmode_decisions(ts_ms)
+
+    def _bootstrap_active_zmode_from_tail(self, max_bytes: int = 8 * 1024 * 1024) -> None:
+        if not self.cfg.seq_mem_path.exists():
+            return
+        try:
+            size = self.cfg.seq_mem_path.stat().st_size
+            if size <= 0:
+                return
+            with self.cfg.seq_mem_path.open("rb") as fh:
+                if size > max_bytes:
+                    fh.seek(size - max_bytes)
+                    _ = fh.readline()
+                data = fh.read()
+        except Exception:
+            return
+        if not data:
+            return
+        for line in data.decode("utf-8", errors="replace").splitlines():
+            raw = line.strip()
+            if not raw:
+                continue
+            try:
+                row = json.loads(raw)
+            except Exception:
+                continue
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("name") or "")
+            if name not in ZMODE_POLICY_NAMES:
+                continue
+            subject = self._subject(row)
+            if name == "zmode.policy.decision.v1":
+                self._record_zmode_decision(row, subject)
+            elif name == "zmode.policy.apply.v1":
+                self._activate_zmode_policy(row, subject)
+
+    def _resolve_zmode_metadata(
+        self,
+        *,
+        action_type: str,
+        action_name: str,
+        target_app: str = "",
+    ) -> dict[str, Any]:
+        active = self.active_zmode
+        if active is None:
+            return {
+                "mapping_epoch_id": "",
+                "zmode_policy_decision_id": "",
+                "candidate_id": "",
+                "candidate_key": "",
+                "candidate_action": "",
+                "policy_apply_ts_ms": 0,
+            }
+        candidate_id = ""
+        candidate_key = ""
+        candidate_action = ""
+        norm_action = self._normalize_action(action_name)
+        match = active.selections_by_action.get(norm_action) if norm_action else None
+        if match is None and action_type == "open_app_toggle" and target_app:
+            target_norm = target_app.strip().lower()
+            for selection in active.selections_by_action.values():
+                if target_norm and target_norm in selection.action.lower():
+                    match = selection
+                    break
+        if match is not None:
+            candidate_id = match.candidate_id
+            candidate_key = match.key
+            candidate_action = match.action
+        return {
+            "mapping_epoch_id": active.mapping_epoch_id,
+            "zmode_policy_decision_id": active.decision_id,
+            "candidate_id": candidate_id,
+            "candidate_key": candidate_key,
+            "candidate_action": candidate_action,
+            "policy_apply_ts_ms": active.applied_ts_ms,
+        }
+
     def _mk_row(self, *, ts_ms: int, session_id: str, name: str, subject_obj: dict[str, Any], ok: bool) -> dict[str, Any]:
         event_id = self._sha(
             f"{name}|{session_id}|{subject_obj.get('decision_id','')}|"
@@ -153,6 +330,12 @@ class KarSignalCapture:
         front_app: str,
         prev_app: str,
         decision: str,
+        mapping_epoch_id: str = "",
+        zmode_policy_decision_id: str = "",
+        candidate_id: str = "",
+        candidate_key: str = "",
+        candidate_action: str = "",
+        policy_apply_ts_ms: int = 0,
     ) -> None:
         subj = {
             "schema_version": "kar_intent_v1",
@@ -168,6 +351,12 @@ class KarSignalCapture:
             "front_app": front_app,
             "prev_app": prev_app,
             "decision": decision,
+            "mapping_epoch_id": mapping_epoch_id,
+            "zmode_policy_decision_id": zmode_policy_decision_id,
+            "candidate_id": candidate_id,
+            "candidate_key": candidate_key,
+            "candidate_action": candidate_action,
+            "policy_apply_ts_ms": int(max(0, policy_apply_ts_ms)),
         }
         self._append_row(
             self._mk_row(
@@ -193,6 +382,12 @@ class KarSignalCapture:
         latency_ms: int,
         observed_app: str,
         reason: str,
+        mapping_epoch_id: str = "",
+        zmode_policy_decision_id: str = "",
+        candidate_id: str = "",
+        candidate_key: str = "",
+        candidate_action: str = "",
+        policy_apply_ts_ms: int = 0,
     ) -> None:
         subj = {
             "schema_version": "kar_outcome_v1",
@@ -207,6 +402,12 @@ class KarSignalCapture:
             "latency_ms": int(max(0, latency_ms)),
             "observed_app": observed_app,
             "reason": reason,
+            "mapping_epoch_id": mapping_epoch_id,
+            "zmode_policy_decision_id": zmode_policy_decision_id,
+            "candidate_id": candidate_id,
+            "candidate_key": candidate_key,
+            "candidate_action": candidate_action,
+            "policy_apply_ts_ms": int(max(0, policy_apply_ts_ms)),
         }
         ok = outcome in {"success", "partial"}
         self._append_row(
@@ -230,6 +431,14 @@ class KarSignalCapture:
         override_action_name: str,
         ms_since_decision: int,
         reason: str,
+        mapping_epoch_id: str = "",
+        zmode_policy_decision_id: str = "",
+        candidate_id: str = "",
+        candidate_key: str = "",
+        override_candidate_id: str = "",
+        override_candidate_key: str = "",
+        policy_apply_ts_ms: int = 0,
+        ms_since_apply: int = 0,
     ) -> None:
         subj = {
             "schema_version": "kar_override_v1",
@@ -241,6 +450,14 @@ class KarSignalCapture:
             "override_action_name": override_action_name,
             "ms_since_decision": int(max(0, ms_since_decision)),
             "reason": reason,
+            "mapping_epoch_id": mapping_epoch_id,
+            "zmode_policy_decision_id": zmode_policy_decision_id,
+            "candidate_id": candidate_id,
+            "candidate_key": candidate_key,
+            "override_candidate_id": override_candidate_id,
+            "override_candidate_key": override_candidate_key,
+            "policy_apply_ts_ms": int(max(0, policy_apply_ts_ms)),
+            "ms_since_apply": int(max(0, ms_since_apply)),
         }
         self._append_row(
             self._mk_row(
@@ -257,6 +474,7 @@ class KarSignalCapture:
             self.offset = 0
             self.inode = 0
             self.state_loaded = False
+            self._bootstrap_active_zmode_from_tail()
             return
         if not self.cfg.state_path.exists():
             return
@@ -273,6 +491,7 @@ class KarSignalCapture:
         if isinstance(inode, int) and inode >= 0:
             self.inode = inode
         self.state_loaded = True
+        self._bootstrap_active_zmode_from_tail()
 
     def save_state(self, force: bool = False) -> None:
         now = time.time()
@@ -310,13 +529,30 @@ class KarSignalCapture:
                     latency_ms=now_ts_ms - p.ts_ms,
                     observed_app="",
                     reason="no_matching_app_activate_within_window",
+                    mapping_epoch_id=p.mapping_epoch_id,
+                    zmode_policy_decision_id=p.zmode_policy_decision_id,
+                    candidate_id=p.candidate_id,
+                    candidate_key=p.candidate_key,
+                    candidate_action=p.candidate_action,
+                    policy_apply_ts_ms=p.policy_apply_ts_ms,
                 )
                 p.resolved = True
                 expired_ids.append(decision_id)
         for d in expired_ids:
             self.pending.pop(d, None)
 
-    def _handle_override(self, *, ts_ms: int, session_id: str, new_decision_id: str, new_action_name: str) -> None:
+    def _handle_override(
+        self,
+        *,
+        ts_ms: int,
+        session_id: str,
+        new_decision_id: str,
+        new_action_name: str,
+        new_mapping_epoch_id: str = "",
+        new_zmode_policy_decision_id: str = "",
+        new_candidate_id: str = "",
+        new_candidate_key: str = "",
+    ) -> None:
         latest: PendingIntent | None = None
         for p in self.pending.values():
             if p.session_id != session_id or p.resolved:
@@ -340,6 +576,14 @@ class KarSignalCapture:
             override_action_name=new_action_name,
             ms_since_decision=delta,
             reason="superseded_by_new_kar_intent",
+            mapping_epoch_id=latest.mapping_epoch_id,
+            zmode_policy_decision_id=latest.zmode_policy_decision_id,
+            candidate_id=latest.candidate_id,
+            candidate_key=latest.candidate_key,
+            override_candidate_id=new_candidate_id,
+            override_candidate_key=new_candidate_key,
+            policy_apply_ts_ms=latest.policy_apply_ts_ms,
+            ms_since_apply=(ts_ms - latest.policy_apply_ts_ms) if latest.policy_apply_ts_ms > 0 else 0,
         )
         self._emit_outcome(
             ts_ms=ts_ms,
@@ -353,7 +597,42 @@ class KarSignalCapture:
             latency_ms=delta,
             observed_app="",
             reason="superseded_by_new_kar_intent",
+            mapping_epoch_id=latest.mapping_epoch_id,
+            zmode_policy_decision_id=latest.zmode_policy_decision_id,
+            candidate_id=latest.candidate_id,
+            candidate_key=latest.candidate_key,
+            candidate_action=latest.candidate_action,
+            policy_apply_ts_ms=latest.policy_apply_ts_ms,
         )
+
+        if latest.mapping_epoch_id:
+            zmode_override_subj = {
+                "schema_version": "zmode_policy_override_v1",
+                "session_id": session_id,
+                "decision_id": latest.zmode_policy_decision_id,
+                "mapping_epoch_id": latest.mapping_epoch_id,
+                "source_kar_decision_id": latest.decision_id,
+                "key": latest.candidate_key,
+                "old_candidate_id": latest.candidate_id or None,
+                "old_action": latest.action_name,
+                "new_action": new_action_name,
+                "replacement_candidate_id": new_candidate_id or None,
+                "replacement_key": new_candidate_key or None,
+                "replacement_mapping_epoch_id": new_mapping_epoch_id or None,
+                "replacement_policy_decision_id": new_zmode_policy_decision_id or None,
+                "ms_since_apply": (ts_ms - latest.policy_apply_ts_ms) if latest.policy_apply_ts_ms > 0 else 0,
+                "ms_since_decision": delta,
+                "reason": "superseded_by_new_kar_intent",
+            }
+            self._append_row(
+                self._mk_row(
+                    ts_ms=ts_ms,
+                    session_id=session_id,
+                    name="zmode.policy.override.v1",
+                    subject_obj=zmode_override_subj,
+                    ok=True,
+                )
+            )
         latest.resolved = True
         latest.overridden_by = new_decision_id
 
@@ -361,6 +640,13 @@ class KarSignalCapture:
         name = str(row.get("name") or "")
         if not name or name.startswith("kar."):
             self.rows_skipped += 1
+            return
+        if name in ZMODE_POLICY_NAMES:
+            subject = self._subject(row)
+            if name == "zmode.policy.decision.v1":
+                self._record_zmode_decision(row, subject)
+            elif name == "zmode.policy.apply.v1":
+                self._activate_zmode_policy(row, subject)
             return
         if name not in SOURCE_NAMES:
             self.rows_skipped += 1
@@ -377,6 +663,10 @@ class KarSignalCapture:
         if name in {"seqd.run", "cli.run.local"}:
             macro_name = str(row.get("subject") or "").strip()
             decision_id = self._sha(f"kar.intent|{name}|{source_event_id}")
+            zmeta = self._resolve_zmode_metadata(
+                action_type="run_macro",
+                action_name=macro_name,
+            )
             self._emit_intent(
                 ts_ms=ts_ms,
                 session_id=session_id,
@@ -390,6 +680,12 @@ class KarSignalCapture:
                 front_app="",
                 prev_app="",
                 decision="run",
+                mapping_epoch_id=str(zmeta.get("mapping_epoch_id") or ""),
+                zmode_policy_decision_id=str(zmeta.get("zmode_policy_decision_id") or ""),
+                candidate_id=str(zmeta.get("candidate_id") or ""),
+                candidate_key=str(zmeta.get("candidate_key") or ""),
+                candidate_action=str(zmeta.get("candidate_action") or ""),
+                policy_apply_ts_ms=int(zmeta.get("policy_apply_ts_ms") or 0),
             )
 
             ok = bool(row.get("ok"))
@@ -405,6 +701,12 @@ class KarSignalCapture:
                 latency_ms=int((row.get("dur_us") or 0) / 1000),
                 observed_app="",
                 reason=f"{name}_returned_ok" if ok else f"{name}_failed",
+                mapping_epoch_id=str(zmeta.get("mapping_epoch_id") or ""),
+                zmode_policy_decision_id=str(zmeta.get("zmode_policy_decision_id") or ""),
+                candidate_id=str(zmeta.get("candidate_id") or ""),
+                candidate_key=str(zmeta.get("candidate_key") or ""),
+                candidate_action=str(zmeta.get("candidate_action") or ""),
+                policy_apply_ts_ms=int(zmeta.get("policy_apply_ts_ms") or 0),
             )
             return
 
@@ -413,12 +715,21 @@ class KarSignalCapture:
             decision = "open_target"
             action_name = f"open_app_toggle:{decision}:{target or 'unknown'}"
             decision_id = self._sha(f"kar.intent|seqd.open_app_toggle|{source_event_id}|{target}")
+            zmeta = self._resolve_zmode_metadata(
+                action_type="open_app_toggle",
+                action_name=action_name,
+                target_app=target,
+            )
 
             self._handle_override(
                 ts_ms=ts_ms,
                 session_id=session_id,
                 new_decision_id=decision_id,
                 new_action_name=action_name,
+                new_mapping_epoch_id=str(zmeta.get("mapping_epoch_id") or ""),
+                new_zmode_policy_decision_id=str(zmeta.get("zmode_policy_decision_id") or ""),
+                new_candidate_id=str(zmeta.get("candidate_id") or ""),
+                new_candidate_key=str(zmeta.get("candidate_key") or ""),
             )
 
             self._emit_intent(
@@ -434,6 +745,12 @@ class KarSignalCapture:
                 front_app="",
                 prev_app="",
                 decision=decision,
+                mapping_epoch_id=str(zmeta.get("mapping_epoch_id") or ""),
+                zmode_policy_decision_id=str(zmeta.get("zmode_policy_decision_id") or ""),
+                candidate_id=str(zmeta.get("candidate_id") or ""),
+                candidate_key=str(zmeta.get("candidate_key") or ""),
+                candidate_action=str(zmeta.get("candidate_action") or ""),
+                policy_apply_ts_ms=int(zmeta.get("policy_apply_ts_ms") or 0),
             )
 
             if target:
@@ -446,6 +763,12 @@ class KarSignalCapture:
                     target_app=target,
                     source_event_id=source_event_id,
                     expired_at_ms=ts_ms + self.cfg.outcome_window_ms,
+                    mapping_epoch_id=str(zmeta.get("mapping_epoch_id") or ""),
+                    zmode_policy_decision_id=str(zmeta.get("zmode_policy_decision_id") or ""),
+                    candidate_id=str(zmeta.get("candidate_id") or ""),
+                    candidate_key=str(zmeta.get("candidate_key") or ""),
+                    candidate_action=str(zmeta.get("candidate_action") or ""),
+                    policy_apply_ts_ms=int(zmeta.get("policy_apply_ts_ms") or 0),
                 )
             else:
                 self._emit_outcome(
@@ -460,6 +783,12 @@ class KarSignalCapture:
                     latency_ms=0,
                     observed_app="",
                     reason="missing_target_in_seqd_open_app_toggle",
+                    mapping_epoch_id=str(zmeta.get("mapping_epoch_id") or ""),
+                    zmode_policy_decision_id=str(zmeta.get("zmode_policy_decision_id") or ""),
+                    candidate_id=str(zmeta.get("candidate_id") or ""),
+                    candidate_key=str(zmeta.get("candidate_key") or ""),
+                    candidate_action=str(zmeta.get("candidate_action") or ""),
+                    policy_apply_ts_ms=int(zmeta.get("policy_apply_ts_ms") or 0),
                 )
             return
 
@@ -473,12 +802,21 @@ class KarSignalCapture:
             expected_app = prev if (decision == "open_prev" and prev) else target
             action_name = f"open_app_toggle:{decision or 'unknown'}:{target or 'unknown'}"
             decision_id = self._sha(f"kar.intent|open_toggle|{source_event_id}|{expected_app}|{decision}")
+            zmeta = self._resolve_zmode_metadata(
+                action_type="open_app_toggle",
+                action_name=action_name,
+                target_app=expected_app,
+            )
 
             self._handle_override(
                 ts_ms=ts_ms,
                 session_id=session_id,
                 new_decision_id=decision_id,
                 new_action_name=action_name,
+                new_mapping_epoch_id=str(zmeta.get("mapping_epoch_id") or ""),
+                new_zmode_policy_decision_id=str(zmeta.get("zmode_policy_decision_id") or ""),
+                new_candidate_id=str(zmeta.get("candidate_id") or ""),
+                new_candidate_key=str(zmeta.get("candidate_key") or ""),
             )
 
             self._emit_intent(
@@ -494,6 +832,12 @@ class KarSignalCapture:
                 front_app=front,
                 prev_app=prev,
                 decision=decision,
+                mapping_epoch_id=str(zmeta.get("mapping_epoch_id") or ""),
+                zmode_policy_decision_id=str(zmeta.get("zmode_policy_decision_id") or ""),
+                candidate_id=str(zmeta.get("candidate_id") or ""),
+                candidate_key=str(zmeta.get("candidate_key") or ""),
+                candidate_action=str(zmeta.get("candidate_action") or ""),
+                policy_apply_ts_ms=int(zmeta.get("policy_apply_ts_ms") or 0),
             )
 
             if expected_app:
@@ -506,6 +850,12 @@ class KarSignalCapture:
                     target_app=expected_app,
                     source_event_id=source_event_id,
                     expired_at_ms=ts_ms + self.cfg.outcome_window_ms,
+                    mapping_epoch_id=str(zmeta.get("mapping_epoch_id") or ""),
+                    zmode_policy_decision_id=str(zmeta.get("zmode_policy_decision_id") or ""),
+                    candidate_id=str(zmeta.get("candidate_id") or ""),
+                    candidate_key=str(zmeta.get("candidate_key") or ""),
+                    candidate_action=str(zmeta.get("candidate_action") or ""),
+                    policy_apply_ts_ms=int(zmeta.get("policy_apply_ts_ms") or 0),
                 )
             else:
                 self._emit_outcome(
@@ -520,6 +870,12 @@ class KarSignalCapture:
                     latency_ms=0,
                     observed_app="",
                     reason="missing_expected_target_app",
+                    mapping_epoch_id=str(zmeta.get("mapping_epoch_id") or ""),
+                    zmode_policy_decision_id=str(zmeta.get("zmode_policy_decision_id") or ""),
+                    candidate_id=str(zmeta.get("candidate_id") or ""),
+                    candidate_key=str(zmeta.get("candidate_key") or ""),
+                    candidate_action=str(zmeta.get("candidate_action") or ""),
+                    policy_apply_ts_ms=int(zmeta.get("policy_apply_ts_ms") or 0),
                 )
             return
 
@@ -544,6 +900,12 @@ class KarSignalCapture:
                         latency_ms=ts_ms - p.ts_ms,
                         observed_app=app_name,
                         reason="target_app_activated",
+                        mapping_epoch_id=p.mapping_epoch_id,
+                        zmode_policy_decision_id=p.zmode_policy_decision_id,
+                        candidate_id=p.candidate_id,
+                        candidate_key=p.candidate_key,
+                        candidate_action=p.candidate_action,
+                        policy_apply_ts_ms=p.policy_apply_ts_ms,
                     )
                     p.resolved = True
                     resolved_ids.append(decision_id)
@@ -730,6 +1092,8 @@ def cmd_start(cfg: Config) -> int:
         str(cfg.outcome_window_ms),
         "--override-window-ms",
         str(cfg.override_window_ms),
+        "--zmode-decision-ttl-ms",
+        str(cfg.zmode_decision_ttl_ms),
     ]
     if cfg.reset_state:
         run_cmd.append("--reset-state")
@@ -815,6 +1179,7 @@ def build_config(args: argparse.Namespace) -> Config:
         poll_seconds=max(0.05, float(args.poll_seconds)),
         outcome_window_ms=max(100, int(args.outcome_window_ms)),
         override_window_ms=max(50, int(args.override_window_ms)),
+        zmode_decision_ttl_ms=max(60_000, int(args.zmode_decision_ttl_ms)),
         reset_state=bool(args.reset_state),
     )
 
@@ -838,6 +1203,12 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
         "--override-window-ms",
         type=int,
         default=int(os.environ.get("SEQ_KAR_SIGNAL_OVERRIDE_WINDOW_MS", "1200")),
+    )
+    parser.add_argument(
+        "--zmode-decision-ttl-ms",
+        type=int,
+        default=int(os.environ.get("SEQ_KAR_SIGNAL_ZMODE_DECISION_TTL_MS", str(48 * 3600 * 1000))),
+        help="Retention window for zmode decision snapshots kept for candidate joins.",
     )
     parser.add_argument(
         "--reset-state",

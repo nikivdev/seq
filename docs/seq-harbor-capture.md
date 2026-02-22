@@ -100,6 +100,9 @@ Expected event names:
 - `kar.intent.v1`
 - `kar.outcome.v1`
 - `kar.override.v1`
+- `zmode.policy.decision.v1`
+- `zmode.policy.apply.v1`
+- `zmode.policy.override.v1`
 - `agent.qa.pair`
 
 ## Checkpoint deltas (see data with your own eyes)
