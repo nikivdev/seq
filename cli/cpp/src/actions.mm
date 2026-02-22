@@ -1954,10 +1954,20 @@ Result run_session_save(const macros::Macro& macro) {
 }
 
 Result run_paste_text(const macros::Macro& macro) {
-  std::string error;
-  int code = process::run_with_input({"/usr/bin/pbcopy"}, macro.arg, &error);
-  if (code != 0) {
-    return {false, "pbcopy failed"};
+  @autoreleasepool {
+    std::string text = macro.arg;
+    NSString* ns = [[NSString alloc] initWithBytes:text.data()
+                                            length:text.size()
+                                          encoding:NSUTF8StringEncoding];
+    if (!ns) {
+      return {false, "invalid_utf8"};
+    }
+    NSPasteboard* pb = [NSPasteboard generalPasteboard];
+    [pb clearContents];
+    BOOL ok = [pb setString:ns forType:NSPasteboardTypeString];
+    if (!ok) {
+      return {false, "pasteboard_write_failed"};
+    }
   }
   // Use the same native key injection path as keystroke actions.
   // AppleScript adds overhead and can fail when automation permissions drift.
