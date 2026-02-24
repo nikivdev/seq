@@ -2297,18 +2297,32 @@ Result run_sequence(const macros::Macro& macro) {
           ++j;
         }
 
-        // Best-effort: get a PID right away (Arc/Chrome/etc are usually already running).
+        // Fast path: target PID directly when available (Arc/Chrome/etc are usually already running).
         std::optional<pid_t> pid = pid_for_app(step.arg);
-        std::string front_now = frontmost_app_name();
-        if (pid) {
-          trace::event("seq.sequence.eager_keystrokes",
-                       "mode=pid\tpid=" + std::to_string(*pid) + "\ttarget=" + step.arg + "\tfront=" + front_now +
-                           "\tcount=" + std::to_string(keys.size()));
-        } else {
-          trace::event("seq.sequence.eager_keystrokes",
-                       "mode=frontmost\ttarget=" + step.arg + "\tfront=" + front_now + "\tcount=" +
-                           std::to_string(keys.size()));
+        std::string mode = "pid";
+
+        if (!pid) {
+          // Safety fallback: if PID isn't available yet (cold launch / slow startup), use the
+          // normal reliability path instead of sending keystrokes immediately.
+          int budget_ms = wait_frontmost_ms_for_keystrokes();
+          bool front_ok = wait_frontmost(step.arg, budget_ms);
+          if (front_ok) {
+            mode = "frontmost_wait";
+            int ms = app_settle_delay_ms();
+            if (ms > 0) {
+              trace::event("seq.sequence.app_settle", std::to_string(ms));
+              std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+            }
+          } else {
+            pid = pid_for_app(step.arg);
+            mode = pid ? "pid_after_wait_timeout" : "frontmost_unresolved";
+          }
         }
+        std::string front_now = frontmost_app_name();
+        trace::event("seq.sequence.eager_keystrokes",
+                     "mode=" + mode + "\tpid=" + (pid ? std::to_string(*pid) : std::string("none")) +
+                         "\ttarget=" + step.arg + "\tfront=" + front_now + "\tcount=" +
+                         std::to_string(keys.size()));
 
         for (auto spec : keys) {
           actions::Result kr = run_keystroke_spec(spec, pid);

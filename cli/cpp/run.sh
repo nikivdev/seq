@@ -134,6 +134,26 @@ if [ -f "$BUILD/libseqch.dylib" ]; then
   chmod +x "$BIN/libseqch.dylib" || true
 fi
 
+# Some runtime signatures produced for bare CLI artifacts can fail validation on disk
+# (then macOS kills the process at launch). Verify final artifacts and re-sign with a
+# plain signature as a safety net.
+resign_if_invalid() {
+  local target="$1"
+  [ -f "$target" ] || return 0
+  if /usr/bin/codesign --verify --verbose=2 "$target" >/dev/null 2>&1; then
+    return 0
+  fi
+  if [ -n "$IDENTITY" ]; then
+    /usr/bin/codesign --force --sign "$IDENTITY" "$target" >/dev/null 2>&1 || true
+  else
+    /usr/bin/codesign --force --sign - "$target" >/dev/null 2>&1 || true
+  fi
+}
+
+resign_if_invalid "$BIN/libseqmem.dylib"
+resign_if_invalid "$BIN/libseqch.dylib"
+resign_if_invalid "$BIN/seq"
+
 # Build a minimal .app bundle for the daemon so macOS TCC grants Accessibility
 # to the daemon process (bare CLI tools only inherit TCC from their terminal).
 APP="$BIN/SeqDaemon.app"
