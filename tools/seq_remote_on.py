@@ -134,11 +134,27 @@ def configure_seqd_launchd(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Enable remote-first seq capture.")
     parser.add_argument(
+        "--force-remote-clickhouse",
+        action="store_true",
+        help="Acknowledge risk and allow switching seqd + Python sinks to remote ClickHouse.",
+    )
+    parser.add_argument(
         "--install",
         action="store_true",
         help="Also build preflight + install launchd services.",
     )
     args = parser.parse_args()
+
+    if not args.force_remote_clickhouse:
+        print(
+            "Refusing remote ClickHouse cutover without --force-remote-clickhouse.",
+            file=sys.stderr,
+        )
+        print(
+            "This guard prevents accidental SEQ_CH_MODE=native + remote sink switches.",
+            file=sys.stderr,
+        )
+        return 2
 
     env_file = read_env_file(ENV_FILE)
     ch_host = env_file.get("SEQ_CH_HOST", "").strip()

@@ -82,14 +82,44 @@ command = "python3 tools/seq_mem_sink.py drain --local-path ${SEQ_CH_MEM_PATH:-$
 description = "Drain fallback queue into remote ClickHouse when remote is available."
 
 [[tasks]]
+name = "maple-forwarder-preflight"
+command = "python3 tools/seq_maple_forwarder.py preflight"
+description = "Validate Maple forwarder endpoint/key and input paths."
+
+[[tasks]]
+name = "maple-forwarder-on"
+command = "python3 tools/seq_maple_forwarder.py start"
+description = "Start seq->Maple forwarder daemon."
+
+[[tasks]]
+name = "maple-forwarder-off"
+command = "python3 tools/seq_maple_forwarder.py stop"
+description = "Stop seq->Maple forwarder daemon."
+
+[[tasks]]
+name = "maple-forwarder-status"
+command = "python3 tools/seq_maple_forwarder.py status"
+description = "Show seq->Maple forwarder daemon status."
+
+[[tasks]]
+name = "maple-forwarder-once"
+command = "python3 tools/seq_maple_forwarder.py once"
+description = "Forward one batch window from seq mem/trace files to Maple."
+
+[[tasks]]
+name = "maple-forwarder-logs"
+command = "sh -lc \"tail -n 120 -f ${SEQ_MAPLE_FORWARDER_LOG:-$HOME/code/seq/cli/cpp/out/logs/maple_forwarder.log}\""
+description = "Tail seq->Maple forwarder daemon log."
+
+[[tasks]]
 name = "rl-capture-on"
 command = "sh -lc \"f ch-mode file && f env set SEQ_CH_MEM_PATH=${SEQ_CH_MEM_PATH:-$HOME/repos/ClickHouse/ClickHouse/user_files/seq_mem.jsonl} && f env set SEQ_CH_LOG_PATH=${SEQ_CH_LOG_PATH:-$HOME/repos/ClickHouse/ClickHouse/user_files/seq_trace.jsonl} && f ch-mode-status\""
 description = "Enable low-latency local RL trace capture (file mode + local spool paths)."
 
 [[tasks]]
 name = "rl-capture-remote-on"
-command = "python3 tools/seq_remote_on.py"
-description = "Enable remote-first RL capture: seqd native CH + Python writers via remote HTTP sink."
+command = "python3 tools/seq_remote_on.py --force-remote-clickhouse"
+description = "Enable remote-first RL capture (explicit force required): seqd native CH + Python writers via remote HTTP sink."
 
 [[tasks]]
 name = "rl-signal-tail"
@@ -444,8 +474,8 @@ description = "Show next-type dataset summary (counts per language, per project,
 
 [[tasks]]
 name = "seq-harbor-preflight"
-command = "sh -lc \"set -e; python3 tools/next_type_tap_build.py; python3 tools/next_type_key_capture_daemon.py preflight; python3 tools/next_type_predictor_daemon.py preflight; python3 tools/kar_signal_capture.py preflight; python3 tools/seq_signal_watchdog.py preflight; python3 tools/ch_mode.py status; python3 tools/agent_qa_ingest.py status || true\""
-description = "Preflight high-signal capture + prediction stack (keystrokes + predictor + Kar + watchdog + seq mode + agent Q/A)."
+command = "sh -lc \"set -e; python3 tools/next_type_tap_build.py; python3 tools/next_type_key_capture_daemon.py preflight; python3 tools/next_type_predictor_daemon.py preflight; python3 tools/kar_signal_capture.py preflight; python3 tools/seq_signal_watchdog.py preflight; python3 tools/seq_maple_forwarder.py preflight; python3 tools/ch_mode.py status; python3 tools/agent_qa_ingest.py status || true\""
+description = "Preflight high-signal capture + prediction stack (keystrokes + predictor + Kar + watchdog + Maple forwarder + seq mode + agent Q/A)."
 
 [[tasks]]
 name = "seq-harbor-install"
@@ -454,13 +484,13 @@ description = "Prepare seq for low-latency RL capture and install launchd superv
 
 [[tasks]]
 name = "seq-harbor-install-remote"
-command = "python3 tools/seq_remote_on.py --install"
-description = "Install remote-first capture (Python writers -> remote ClickHouse, local file only as fallback queue)."
+command = "python3 tools/seq_remote_on.py --force-remote-clickhouse --install"
+description = "Install remote-first capture (explicit force): Python writers -> remote ClickHouse, local file only as fallback queue."
 
 [[tasks]]
 name = "seq-harbor-run"
 command = "sh -lc \"set -e; python3 tools/seq_capture_launchd.py restart --service all; python3 tools/seq_capture_launchd.py status --service all\""
-description = "Start/restart supervised continuous capture + prediction via launchd (keystrokes + predictor + Kar + agent Q/A + watchdog)."
+description = "Start/restart supervised continuous capture + prediction via launchd (keystrokes + predictor + Kar + agent Q/A + watchdog + Maple forwarder)."
 
 [[tasks]]
 name = "seq-harbor-stop"
@@ -469,13 +499,13 @@ description = "Stop launchd-supervised capture daemons."
 
 [[tasks]]
 name = "seq-harbor-status"
-command = "sh -lc \"python3 tools/seq_capture_launchd.py status --service all || true; echo '---'; python3 tools/next_type_key_capture_daemon.py status || true; echo '---'; python3 tools/next_type_predictor_daemon.py status || true; echo '---'; python3 tools/kar_signal_capture.py status || true; echo '---'; python3 tools/agent_qa_ingest.py status || true; echo '---'; python3 tools/seq_signal_watchdog.py status || true; echo '---'; python3 tools/ch_mode.py status\""
-description = "Show launchd + daemon + prediction + ClickHouse capture status."
+command = "sh -lc \"python3 tools/seq_capture_launchd.py status --service all || true; echo '---'; python3 tools/next_type_key_capture_daemon.py status || true; echo '---'; python3 tools/next_type_predictor_daemon.py status || true; echo '---'; python3 tools/kar_signal_capture.py status || true; echo '---'; python3 tools/agent_qa_ingest.py status || true; echo '---'; python3 tools/seq_signal_watchdog.py status || true; echo '---'; python3 tools/seq_maple_forwarder.py status || true; echo '---'; python3 tools/ch_mode.py status\""
+description = "Show launchd + daemon + prediction + Maple + ClickHouse capture status."
 
 [[tasks]]
 name = "seq-harbor-logs"
-command = "sh -lc \"mkdir -p $HOME/code/seq/cli/cpp/out/logs; touch $HOME/code/seq/cli/cpp/out/logs/next_type.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/next_type_predictor.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/kar_signal.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/agent_qa.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/watchdog.launchd.stderr.log; tail -n 120 -f $HOME/code/seq/cli/cpp/out/logs/next_type.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/next_type_predictor.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/kar_signal.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/agent_qa.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/watchdog.launchd.stderr.log\""
-description = "Tail launchd capture logs (next_type + predictor + Kar + agent Q/A + watchdog)."
+command = "sh -lc \"mkdir -p $HOME/code/seq/cli/cpp/out/logs; touch $HOME/code/seq/cli/cpp/out/logs/next_type.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/next_type_predictor.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/kar_signal.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/agent_qa.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/watchdog.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/maple_forwarder.launchd.stderr.log; tail -n 120 -f $HOME/code/seq/cli/cpp/out/logs/next_type.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/next_type_predictor.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/kar_signal.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/agent_qa.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/watchdog.launchd.stderr.log $HOME/code/seq/cli/cpp/out/logs/maple_forwarder.launchd.stderr.log\""
+description = "Tail launchd capture logs (next_type + predictor + Kar + agent Q/A + watchdog + Maple forwarder)."
 
 [[tasks]]
 name = "seq-capture-launchd-install"
@@ -813,7 +843,7 @@ provider = "myflow.sh"
 
 [[storage.envs]]
 name = "local"
-description = "Everruns->Maple dual-ingest configuration for seq bridge"
+description = "Seq capture + Maple hosted ingest configuration"
 variables = [
   { key = "SEQ_CH_MODE", default = "file" },
   { key = "SEQ_CH_HOST", default = "127.0.0.1" },
@@ -822,7 +852,7 @@ variables = [
   { key = "SEQ_CH_DATABASE", default = "seq" },
   { key = "SEQ_CH_MEM_PATH" },
   { key = "SEQ_CH_LOG_PATH" },
-  { key = "SEQ_MEM_SINK_MODE", default = "auto" },
+  { key = "SEQ_MEM_SINK_MODE", default = "file" },
   { key = "SEQ_MEM_REMOTE_URL" },
   { key = "SEQ_MEM_REMOTE_DB", default = "seq" },
   { key = "SEQ_MEM_REMOTE_TABLE", default = "mem_events" },
@@ -978,7 +1008,7 @@ variables = [
   { key = "SEQ_RL_NEXT_RUN_REPORT", default = "~/.local/state/seq/rl_next_run_prep_report.json" },
   { key = "SEQ_EVERRUNS_MAPLE_LOCAL_ENDPOINT", default = "http://ingest.maple.localhost/v1/traces" },
   { key = "SEQ_EVERRUNS_MAPLE_LOCAL_INGEST_KEY", default = "" },
-  { key = "SEQ_EVERRUNS_MAPLE_HOSTED_ENDPOINT", default = "https://ingest.1focus.ai/v1/traces" },
+  { key = "SEQ_EVERRUNS_MAPLE_HOSTED_ENDPOINT", default = "https://ingest.maple.dev/v1/traces" },
   { key = "SEQ_EVERRUNS_MAPLE_HOSTED_INGEST_KEY", default = "" },
   { key = "SEQ_EVERRUNS_MAPLE_SERVICE_NAME", default = "seq-everruns-bridge" },
   { key = "SEQ_EVERRUNS_MAPLE_SERVICE_VERSION", default = "" },
@@ -989,4 +1019,20 @@ variables = [
   { key = "SEQ_EVERRUNS_MAPLE_FLUSH_INTERVAL_MS", default = "50" },
   { key = "SEQ_EVERRUNS_MAPLE_CONNECT_TIMEOUT_MS", default = "400" },
   { key = "SEQ_EVERRUNS_MAPLE_REQUEST_TIMEOUT_MS", default = "800" },
+  { key = "SEQ_MAPLE_FORWARDER_ENDPOINT", default = "https://ingest.maple.dev/v1/traces" },
+  { key = "SEQ_MAPLE_FORWARDER_INGEST_KEY", default = "" },
+  { key = "SEQ_MAPLE_FORWARDER_SERVICE_NAME", default = "seq" },
+  { key = "SEQ_MAPLE_FORWARDER_SERVICE_VERSION", default = "" },
+  { key = "SEQ_MAPLE_FORWARDER_ENV", default = "local" },
+  { key = "SEQ_MAPLE_FORWARDER_SCOPE_NAME", default = "seq_forwarder" },
+  { key = "SEQ_MAPLE_FORWARDER_STATE", default = "~/.local/state/seq/maple_forwarder_state.json" },
+  { key = "SEQ_MAPLE_FORWARDER_PIDFILE", default = "~/.local/state/seq/maple_forwarder.pid" },
+  { key = "SEQ_MAPLE_FORWARDER_LOG", default = "~/code/seq/cli/cpp/out/logs/maple_forwarder.log" },
+  { key = "SEQ_MAPLE_FORWARDER_POLL_SECONDS", default = "0.5" },
+  { key = "SEQ_MAPLE_FORWARDER_BATCH_SIZE", default = "128" },
+  { key = "SEQ_MAPLE_FORWARDER_MAX_BATCHES", default = "8" },
+  { key = "SEQ_MAPLE_FORWARDER_TIMEOUT_S", default = "2.0" },
+  { key = "SEQ_MAPLE_FORWARDER_VERIFY_TLS", default = "true" },
+  { key = "SEQ_MAPLE_FORWARDER_CA_BUNDLE", default = "" },
+  { key = "SEQ_MAPLE_FORWARDER_MAX_LINE_BYTES", default = "262144" },
 ]

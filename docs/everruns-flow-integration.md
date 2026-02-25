@@ -55,7 +55,7 @@ seq_everruns_bridge = { path = "third_party/seq/api/rust/seq_everruns_bridge" }
 `seq_everruns_bridge` can dual-write tool-call traces to Maple OTLP ingest endpoints without blocking the tool path:
 
 - local Maple (for fast dev visualization)
-- hosted Maple (`ingest.1focus.ai`) for shared history
+- hosted Maple (`ingest.maple.dev`) for shared history
 
 Flow runtime sketch:
 

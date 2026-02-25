@@ -8,6 +8,7 @@ Supervised services:
 - `kar_signal_capture.py`
 - `agent_qa_ingest.py`
 - `seq_signal_watchdog.py`
+- `seq_maple_forwarder.py` (forwards `seq_mem` + `seq_trace` rows to Maple OTLP ingest)
 
 ## Commands
 

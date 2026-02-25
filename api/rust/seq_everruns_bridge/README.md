@@ -72,7 +72,7 @@ Supported environment variables:
 
 - `SEQ_EVERRUNS_MAPLE_LOCAL_ENDPOINT` (example: `http://ingest.maple.localhost/v1/traces`)
 - `SEQ_EVERRUNS_MAPLE_LOCAL_INGEST_KEY`
-- `SEQ_EVERRUNS_MAPLE_HOSTED_ENDPOINT` (example: `https://ingest.1focus.ai/v1/traces`)
+- `SEQ_EVERRUNS_MAPLE_HOSTED_ENDPOINT` (example: `https://ingest.maple.dev/v1/traces`)
 - `SEQ_EVERRUNS_MAPLE_HOSTED_INGEST_KEY`
 
 Or CSV form:

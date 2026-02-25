@@ -10,6 +10,7 @@ Capture continuously with near-zero user impact:
 - Kar decision/outcome/override signal (`kar.*`)
 - Claude/Codex task dialogue signal (`agent.qa.pair`)
 - existing seq traces/mem events in file mode
+- hosted Maple export for all seq mem/trace rows (`seq_maple_forwarder.py`)
 
 ## One-time setup
 
@@ -35,7 +36,7 @@ f env set --personal SEQ_CH_HOST=<linux-host>
 f env set --personal SEQ_CH_PORT=9000
 f env set --personal SEQ_CH_DATABASE=seq
 
-# Enable remote-first capture
+# Enable remote-first capture (explicit force guard)
 f seq-harbor-install-remote
 f seq-harbor-run
 f seq-mem-sink-status
@@ -55,6 +56,7 @@ f seq-mem-sink-drain
 
 Detailed reference:
 - `docs/seq-remote-clickhouse.md`
+- `docs/seq-maple-forwarder.md`
 
 ## Start continuous capture
 
@@ -68,6 +70,7 @@ This (re)starts launchd-supervised capture services:
 - `kar_signal_capture.py` (`kar.intent/outcome/override`)
 - `agent_qa_ingest.py` (`agent.qa.pair`)
 - `seq_signal_watchdog.py` (health, auto-remediation, periodic checkpoints)
+- `seq_maple_forwarder.py` (ships local `seq_mem`/`seq_trace` rows to hosted Maple)
 
 ## Status and logs
 

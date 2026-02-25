@@ -35,6 +35,7 @@ f env set --personal SEQ_CH_PORT=9000
 f env set --personal SEQ_CH_HTTP_PORT=8123
 f env set --personal SEQ_CH_DATABASE=seq
 
+# Explicit force flag is required to avoid accidental remote cutovers.
 f rl-capture-remote-on
 f seq-harbor-run
 f seq-mem-sink-status

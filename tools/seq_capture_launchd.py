@@ -65,6 +65,13 @@ SERVICES: tuple[ServiceDef, ...] = (
         pid_env="SEQ_NEXT_TYPE_PREDICTOR_PIDFILE",
         pid_default="~/.local/state/seq/next_type_predictor.pid",
     ),
+    ServiceDef(
+        key="maple_forwarder",
+        suffix="maple-forwarder",
+        tool="seq_maple_forwarder.py",
+        pid_env="SEQ_MAPLE_FORWARDER_PIDFILE",
+        pid_default="~/.local/state/seq/maple_forwarder.pid",
+    ),
 )
 
 
@@ -87,6 +94,25 @@ PASS_ENV_KEYS = (
     "SEQ_MEM_LOCAL_TAIL_MAX_BYTES",
     "SEQ_MEM_REMOTE_DRAIN_BATCH_SIZE",
     "SEQ_MEM_REMOTE_DRAIN_MAX_BATCHES",
+    "SEQ_EVERRUNS_MAPLE_HOSTED_ENDPOINT",
+    "SEQ_EVERRUNS_MAPLE_HOSTED_INGEST_KEY",
+    "SEQ_EVERRUNS_MAPLE_ENV",
+    "SEQ_MAPLE_FORWARDER_ENDPOINT",
+    "SEQ_MAPLE_FORWARDER_INGEST_KEY",
+    "SEQ_MAPLE_FORWARDER_SERVICE_NAME",
+    "SEQ_MAPLE_FORWARDER_SERVICE_VERSION",
+    "SEQ_MAPLE_FORWARDER_ENV",
+    "SEQ_MAPLE_FORWARDER_SCOPE_NAME",
+    "SEQ_MAPLE_FORWARDER_STATE",
+    "SEQ_MAPLE_FORWARDER_PIDFILE",
+    "SEQ_MAPLE_FORWARDER_LOG",
+    "SEQ_MAPLE_FORWARDER_POLL_SECONDS",
+    "SEQ_MAPLE_FORWARDER_BATCH_SIZE",
+    "SEQ_MAPLE_FORWARDER_MAX_BATCHES",
+    "SEQ_MAPLE_FORWARDER_TIMEOUT_S",
+    "SEQ_MAPLE_FORWARDER_VERIFY_TLS",
+    "SEQ_MAPLE_FORWARDER_CA_BUNDLE",
+    "SEQ_MAPLE_FORWARDER_MAX_LINE_BYTES",
     "SEQ_NEXT_TYPE_TAP_LOG",
     "SEQ_NEXT_TYPE_TAP_BIN",
     "SEQ_NEXT_TYPE_OUT",
@@ -315,7 +341,15 @@ def parse_args() -> argparse.Namespace:
         p = sub.add_parser(action)
         p.add_argument(
             "--service",
-            choices=["all", "next_type", "kar_signal", "agent_qa", "watchdog", "next_type_predictor"],
+            choices=[
+                "all",
+                "next_type",
+                "kar_signal",
+                "agent_qa",
+                "watchdog",
+                "next_type_predictor",
+                "maple_forwarder",
+            ],
             default="all",
         )
         p.add_argument("--label-prefix", default=os.environ.get("SEQ_CAPTURE_LAUNCHD_LABEL_PREFIX", DEFAULT_LABEL_PREFIX))

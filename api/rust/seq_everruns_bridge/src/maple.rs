@@ -584,7 +584,7 @@ mod tests {
         std::env::set_var("SEQ_EVERRUNS_MAPLE_LOCAL_INGEST_KEY", "maple_pk_local");
         std::env::set_var(
             "SEQ_EVERRUNS_MAPLE_HOSTED_ENDPOINT",
-            "https://ingest.1focus.ai/v1/traces",
+            "https://ingest.maple.dev/v1/traces",
         );
         std::env::set_var("SEQ_EVERRUNS_MAPLE_HOSTED_INGEST_KEY", "maple_pk_hosted");
 
@@ -599,7 +599,7 @@ mod tests {
         assert!(cfg
             .targets
             .iter()
-            .any(|t| t.traces_endpoint == "https://ingest.1focus.ai/v1/traces"));
+            .any(|t| t.traces_endpoint == "https://ingest.maple.dev/v1/traces"));
         unset_maple_envs();
     }
 
@@ -609,7 +609,7 @@ mod tests {
         unset_maple_envs();
         std::env::set_var(
             "SEQ_EVERRUNS_MAPLE_TRACES_ENDPOINTS",
-            "http://ingest.maple.localhost/v1/traces,https://ingest.1focus.ai/v1/traces",
+            "http://ingest.maple.localhost/v1/traces,https://ingest.maple.dev/v1/traces",
         );
         std::env::set_var("SEQ_EVERRUNS_MAPLE_INGEST_KEYS", "maple_pk_only_one");
 

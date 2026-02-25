@@ -3,7 +3,7 @@
 This setup sends Everruns tool-call telemetry from `seq_everruns_bridge` to:
 
 - local Maple (`ingest.maple.localhost`) for fast iteration
-- hosted Maple (`ingest.1focus.ai`) for shared visualization/history
+- hosted Maple (`ingest.maple.dev`) for shared visualization/history
 
 ## 1. Configure Endpoints and Keys
 
@@ -12,7 +12,7 @@ Use Flow env store for keys (recommended):
 ```bash
 f env set SEQ_EVERRUNS_MAPLE_LOCAL_ENDPOINT=http://ingest.maple.localhost/v1/traces
 f env set SEQ_EVERRUNS_MAPLE_LOCAL_INGEST_KEY=maple_pk_local_xxx
-f env set SEQ_EVERRUNS_MAPLE_HOSTED_ENDPOINT=https://ingest.1focus.ai/v1/traces
+f env set SEQ_EVERRUNS_MAPLE_HOSTED_ENDPOINT=https://ingest.maple.dev/v1/traces
 f env set SEQ_EVERRUNS_MAPLE_HOSTED_INGEST_KEY=maple_pk_hosted_xxx
 ```
 
@@ -38,6 +38,23 @@ This keeps `MEM_TAIL` and local recovery behavior intact while still streaming t
 Detailed wrapper reference:
 
 - `docs/clickhouse-mode-wrapper.md`
+
+## 1.6 Forward `seq_mem` + `seq_trace` to Hosted Maple
+
+To export all local seq file-mode telemetry (not only Everruns tool spans), run the forwarder:
+
+```bash
+f env set SEQ_MAPLE_FORWARDER_ENDPOINT=https://ingest.maple.dev/v1/traces
+f env set SEQ_MAPLE_FORWARDER_INGEST_KEY=maple_pk_hosted_xxx
+f maple-forwarder-preflight
+f maple-forwarder-on
+```
+
+When using launchd capture stack, the forwarder is included via:
+
+```bash
+f seq-harbor-run
+```
 
 ## 2. Wire Export in Everruns Runtime
 
